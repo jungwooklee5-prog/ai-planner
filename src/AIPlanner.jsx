@@ -1,4 +1,4 @@
-/* AI Planner — toggle planner, local times, all-day + weekly repeats, edit due, fixed syllabus times, due list */
+/* AI Planner — toggle planner, local times, all-day + weekly repeats, edit due, syllabus time fix, due list, draggable layout */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
@@ -9,23 +9,18 @@ import ChatBox from "./components/ChatBox";
 import CalendarMonth from "./components/CalendarMonth";
 import DayDetails from "./components/DayDetails";
 import NotificationDock from "./components/NotificationDock";
+import BoardLayout from "./components/BoardLayout";
 
 pdfjsLib.GlobalWorkerOptions.workerPort = new pdfWorker();
 
-/* ---------- local datetime helpers (no UTC drift) ---------- */
+/* ---------- local datetime helpers ---------- */
 const pad = n => String(n).padStart(2,"0");
-function toLocalInput(dt){ // -> "yyyy-mm-ddThh:mm" in local time
-  const d = new Date(dt);
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-function ymd(isoOrDate){ const d=new Date(isoOrDate); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
-function atTime(baseISO,timeISO){ // copy hh:mm from timeISO onto base date (local)
-  const b=new Date(baseISO+"T00:00"); const t=new Date(timeISO); b.setHours(t.getHours(), t.getMinutes(),0,0); return b;
-}
-function setLocalYMD(dateLike, y,m,d){ const x=new Date(dateLike); x.setFullYear(y,m-1,d); return x; }
+function toLocalInput(dt){ const d = new Date(dt); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function ymd(dLike){ const d=new Date(dLike); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function parseLocalDT(s){ if(!s) return null; const d=new Date(s); return isNaN(d)?null:d; }
 function minutesSinceMidnight(d){ return d.getHours()*60 + d.getMinutes(); }
 function toHM(mins){ const h=Math.floor(mins/60), m=mins%60, ampm=h>=12?"PM":"AM", hr12=((h+11)%12)+1; return `${hr12}:${pad(m)} ${ampm}`; }
+function atTime(baseISO,timeISO){ const b=new Date(baseISO+"T00:00"); const t=new Date(timeISO); b.setHours(t.getHours(), t.getMinutes(),0,0); return b; }
 
 /* ---------- scheduling ---------- */
 const PRIORITY_WEIGHT={High:3,Medium:2,Low:1};
@@ -40,24 +35,20 @@ function autoSchedule({tasks,events,selectedDate,minStart,maxEnd}){
   const selDay = sel.getDay();
   const dayStr = sel.toDateString();
 
-  // Normalize events for selected day (handle allDay & repeatWeekly)
   const dayEvents = [];
   for (const e of events){
     const isRepeat = !!e.repeatWeekly;
     const isAllDay = !!e.allDay;
     if (isRepeat){
-      // build an instance on selected day using the time-of-day from the template
       const sTpl = parseLocalDT(e.start), eTpl = parseLocalDT(e.end);
       if (!sTpl || !eTpl) continue;
-      const match = sTpl.getDay() === selDay; // same weekday
-      if (!match) continue;
+      if (sTpl.getDay() !== selDay) continue;
       const s = atTime(ymd(sel), toLocalInput(sTpl));
       const end = atTime(ymd(sel), toLocalInput(eTpl));
       dayEvents.push([minutesSinceMidnight(s), minutesSinceMidnight(end)]);
     } else {
       const sDate = parseLocalDT(e.start);
-      if (!sDate) continue;
-      if (sDate.toDateString() !== dayStr) continue;
+      if (!sDate || sDate.toDateString() !== dayStr) continue;
       if (isAllDay){
         dayEvents.push([minStart, maxEnd]);
       } else {
@@ -79,11 +70,18 @@ function autoSchedule({tasks,events,selectedDate,minStart,maxEnd}){
     const pref=TOD_WINDOWS[t.tod||"Any"]; const windows=[pref,[minStart,maxEnd]];
     for(const w of windows){
       for(let i=0;i<freeBlocks.length && remaining>0;i++){
-        let [fs,fe]=freeBlocks[i]; const s=Math.max(fs,w[0]), e=Math.min(fe,w[1]); if(e-s<=0) continue;
-        const chunk=Math.min(remaining,e-s,90); const start=s,end=s+chunk;
-        placed.push({ title:t.title, startMin:start, endMin: end, type:"task" });
+        let [fs,fe]=freeBlocks[i];
+        const s=Math.max(fs,w[0]), e=Math.min(fe,w[1]); if(e-s<=0) continue;
+        const chunk=Math.min(remaining,e-s,90);
+        const start=s, end=s+chunk;
+        placed.push({ title:t.title, startMin: start, endMin: end, type:"task" });
         remaining-=chunk;
-        if(chunk>=50 && end+10<=fe){ placed.push({ title:"Break", startMin:end, endMin:end+10, type:"break" }); fs=end+10; } else fs=end;
+        if(chunk>=50 && end+10<=fe){
+          placed.push({ title:"Break", startMin: end, endMin: end+10, type:"break" });
+          fs=end+10;
+        } else {
+          fs=end;
+        }
         if(fs>=fe){ freeBlocks.splice(i,1); i--; } else freeBlocks[i]=[fs,fe];
       }
       if(remaining<=0) break;
@@ -92,7 +90,7 @@ function autoSchedule({tasks,events,selectedDate,minStart,maxEnd}){
   return placed.filter(b=>b.endMin>b.startMin).sort((a,b)=>a.startMin-b.startMin);
 }
 
-/* ---------- syllabus parsing (make due 23:59 LOCAL) ---------- */
+/* ---------- syllabus parsing (23:59 local if no time) ---------- */
 async function readPdfText(file){ const buf=await file.arrayBuffer(); const pdf=await pdfjsLib.getDocument({data:buf}).promise; let text=""; for(let i=1;i<=pdf.numPages;i++){ const page=await pdf.getPage(i); const content=await page.getTextContent(); text += content.items.map(it => ("str" in it ? it.str : it?.text || "")).join(" ") + "\n"; } return text; }
 async function readDocxText(file){ const arrayBuffer=await file.arrayBuffer(); const { value:html }=await convertToHtml({ arrayBuffer }); return html.replace(/<[^>]+>/g," "); }
 const ASSIGNMENT_KEYWORD = /(assignment|homework|hw|project|lab|paper|essay|problem\s*set|pset|quiz|midterm|final)/i;
@@ -105,7 +103,7 @@ function chronoAssignments(text){
     const res = chrono.parse(line, new Date(), { forwardDate:true })?.[0];
     if(!res) continue;
     const d = res.start?.date(); if(!d) continue;
-    if(!res.start.isCertain("hour")) d.setHours(23,59,0,0); // local 23:59
+    if(!res.start.isCertain("hour")) d.setHours(23,59,0,0);
     const title = line.replace(/due\s*:?\s*/i,"").replace(res.text,"").replace(/\s{2,}/g," ").trim() || "Assignment";
     const dueISO = toLocalInput(d);
     const key = `${title.toLowerCase()}|${dueISO}`;
@@ -115,14 +113,13 @@ function chronoAssignments(text){
   return out;
 }
 
-/* ---------- profiles ---------- */
+/* ---------- profiles & tiny UI ---------- */
 const ls = { get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}} };
 const PROFILES_KEY="planner:profiles", LAST_KEY="planner:lastProfile";
 function allProfiles(){ return ls.get(PROFILES_KEY,["default"]); }
 function ensureProfile(pid){ const list=allProfiles(); if(!list.includes(pid)){list.push(pid); ls.set(PROFILES_KEY,list);} ls.set(LAST_KEY,pid); }
 function dataKey(pid){ return `planner:data:${pid}`; }
 
-/* ---------- small UI atoms ---------- */
 const Chip=({children})=><span className="inline-block text-[11px] px-2 py-0.5 rounded-full border bg-slate-50 mr-1">{children}</span>;
 function TextButton({onClick,children}){ return <button onClick={onClick} className="text-xs underline">{children}</button>; }
 
@@ -141,19 +138,19 @@ export default function AIPlanner(){
   const [showDayPanel,setShowDayPanel]=useState(false);
   const [debugOpen,setDebugOpen]=useState(false); const [lastText,setLastText]=useState(""); const [lastMatches,setLastMatches]=useState([]);
 
-  const minStart=startHour*60, maxEnd=endHour*60; const dayLabel=useMemo(()=>new Date(date+"T00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}),[date]);
+  const minStart=startHour*60, maxEnd=endHour*60;
+  const dayLabel=useMemo(()=>new Date(date+"T00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}),[date]);
 
   // auth
   useEffect(()=>{ (async()=>{ const { data:{session} }=await supabase.auth.getSession(); setUser(session?.user||null); const { data:sub }=supabase.auth.onAuthStateChange((_e,s)=>setUser(s?.user||null)); return ()=>sub.subscription.unsubscribe(); })(); },[]);
-  // load per profile
+  // profile load/save
   useEffect(()=>{ ensureProfile(profile); const url=new URL(location.href); profile==="default"?url.searchParams.delete("u"):url.searchParams.set("u",profile); history.replaceState(null,"",url.toString()); user?loadCloud():loadLocal(); },[profile,user]);
   function loadLocal(){ const saved=ls.get(dataKey(profile),null); if(saved){ setTasks(saved.tasks||[]); setEvents(saved.events||[]); setAssignments(saved.assignments||[]); const s=saved.settings||{}; setStartHour(s.startHour??6); setEndHour(s.endHour??22);} else { setTasks([]); setEvents([]); setAssignments([]); setStartHour(6); setEndHour(22);} }
   async function loadCloud(){ const { data,error }=await supabase.from("planners").select("data").eq("user_id",user.id).eq("profile",profile).single(); if(error && error.code!=="PGRST116"){console.error(error); loadLocal(); return;} if(!data){ setTasks([]); setEvents([]); setAssignments([]); setStartHour(6); setEndHour(22); return;} const p=data.data||{}; setTasks(p.tasks||[]); setEvents(p.events||[]); setAssignments(p.assignments||[]); const s=p.settings||{}; setStartHour(s.startHour??6); setEndHour(s.endHour??22); }
-  // autosave
   const saveTimer=useRef(null);
   useEffect(()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current=setTimeout(()=>{ const payload={tasks,events,assignments,settings:{startHour,endHour}}; user?supabase.from("planners").upsert({user_id:user.id,profile,data:payload}):ls.set(dataKey(profile),payload); ls.set(LAST_KEY,profile); },400); return ()=>clearTimeout(saveTimer.current); },[user,profile,tasks,events,assignments,startHour,endHour]);
 
-  // planner build
+  // build plan when visible
   useEffect(()=>{ if(showPlanner) regenerate(); },[showPlanner,date,tasks,events,startHour,endHour]);
   function regenerate(){ const sel=new Date(date+"T00:00"); setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd})); }
 
@@ -194,25 +191,17 @@ export default function AIPlanner(){
   async function ocrImageFile(file){ const { createWorker } = await import("tesseract.js"); const worker=await createWorker("eng"); const url=URL.createObjectURL(file); const { data:{ text } }=await worker.recognize(url); await worker.terminate(); URL.revokeObjectURL(url); return text; }
   function guessWeekStartISO(todayISO){ const d=new Date(todayISO+"T00:00"); const diff=((d.getDay()||7)-1); d.setDate(d.getDate()-diff); return d; }
   const DAY_NAMES=["mon","tue","wed","thu","fri","sat","sun"];
-  function parseScheduleTextToEvents(text,weekStart){ const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean); const events=[]; for(const line of lines){ const l=line.toLowerCase(); const day=DAY_NAMES.find(d=>l.startsWith(d)); if(!day) continue; const tm=line.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[–-]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i); if(!tm) continue; const [,h1,m1="00",ap1="",h2,m2="00",ap2=""]=tm; const title=line.slice(tm.index+tm[0].length).trim()||"Event"; const off=DAY_NAMES.indexOf(day); const base=new Date(weekStart); base.setDate(base.getDate()+off); const to24=(h,m,ap)=>{ let hh=Number(h)%12; if((ap||"").toLowerCase()==="pm") hh+=12; return [hh, Number(m)]; }; const [sH,sM]=to24(h1,m1,ap1), [eH,eM]=to24(h2,m2,ap2); const s=new Date(base); s.setHours(sH,sM,0,0); const e=new Date(base); e.setHours(eH,eM,0,0); if(e>s) events.push({ id:Math.random().toString(36).slice(2,9), title, start:toLocalInput(s), end:toLocalInput(e), location:"", allDay:false, repeatWeekly:true }); } return events; }
+  function parseScheduleTextToEvents(text,weekStart){ const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean); const evs=[]; for(const line of lines){ const l=line.toLowerCase(); const day=DAY_NAMES.find(d=>l.startsWith(d)); if(!day) continue; const tm=line.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[–-]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i); if(!tm) continue; const [,h1,m1="00",ap1="",h2,m2="00",ap2=""]=tm; const title=line.slice(tm.index+tm[0].length).trim()||"Event"; const off=DAY_NAMES.indexOf(day); const base=new Date(weekStart); base.setDate(base.getDate()+off); const to24=(h,m,ap)=>{ let hh=Number(h)%12; if((ap||"").toLowerCase()==="pm") hh+=12; return [hh, Number(m)]; }; const [sH,sM]=to24(h1,m1,ap1), [eH,eM]=to24(h2,m2,ap2); const s=new Date(base); s.setHours(sH,sM,0,0); const e=new Date(base); e.setHours(eH,eM,0,0); if(e>s) evs.push({ id:Math.random().toString(36).slice(2,9), title, start:toLocalInput(s), end:toLocalInput(e), location:"", allDay:false, repeatWeekly:true }); } return evs; }
   async function handleEventUpload(e){ const files=Array.from(e.target.files||[]); if(!files.length) return; const imported=[]; const weekStart=guessWeekStartISO(date); for(const f of files){ const ext=(f.name.split(".").pop()||"").toLowerCase(); try{ if(ext==="ics"){ const t=await readFileAsText(f); imported.push(...parseICS(t)); } else if(ext==="csv"){ const t=await readFileAsText(f); imported.push(...parseCSV(t)); } else { const t=await ocrImageFile(f); imported.push(...parseScheduleTextToEvents(t,weekStart)); } }catch(err){ alert(`Failed to import ${f.name}: ${err.message||err}`); } } if(imported.length){ setEvents(prev=>[...imported,...prev]); alert(`Imported ${imported.length} event(s).`);} else alert("No events detected."); e.target.value=""; }
 
   // syllabus upload
   async function handleSyllabusUpload(e){ const files=Array.from(e.target.files||[]); if(!files.length) return; const all=[]; let dbg=""; let matches=[]; for(const f of files){ const ext=(f.name.split(".").pop()||"").toLowerCase(); try{ let text=""; if(ext==="pdf") text=await readPdfText(f); else if(ext==="doc"||ext==="docx") text=await readDocxText(f); else if(ext==="txt") text=await readFileAsText(f); else text=await ocrImageFile(f); dbg += `\n\n===== ${f.name} =====\n` + text.slice(0,20000); const items=chronoAssignments(text); matches.push(...items.map(x=>x.source)); items.forEach(x=>x.file=f.name); all.push(...items); }catch(err){ alert(`Failed to read ${f.name}: ${err.message||err}`); } } if(!all.length){ alert("No assignments detected — open Debug to inspect the extracted text."); } setLastText(dbg.trim()); setLastMatches(matches); setAssignments(prev=>{ const seen=new Set(); const merged=[...prev,...all]; return merged.filter(x=>{ const key=`${(x.title||"").toLowerCase()}|${x.dueISO||""}`; if(seen.has(key)) return false; seen.add(key); return true; }); }); e.target.value=""; }
 
-  // browser notifications (events)
+  // notifications for events
   const notifiedIds=useRef(new Set());
   useEffect(()=>{ if(typeof window==="undefined") return; if("Notification" in window && Notification.permission==="default") Notification.requestPermission(); const t=setInterval(()=>{ if(!("Notification" in window) || Notification.permission!=="granted") return; const now=new Date(); const soon=new Date(now.getTime()+10*60*1000); for(const e of events){ const s=parseLocalDT(e.start); if(!s) continue; if(s>now && s<=soon){ const key=e.id||`${e.title}|${e.start}`; if(notifiedIds.current.has(key)) continue; notifiedIds.current.add(key); new Notification(e.title||"Upcoming event",{ body:`${s.toLocaleString()}${e.location?` • ${e.location}`:""}`}); } } },30*1000); return ()=>clearInterval(t); },[events]);
 
-  // block view
-  const blockCard=(b,i)=>(
-    <div key={i} className={`rounded-xl p-3 border w-full box-border overflow-hidden ${b.type==="task"?"bg-emerald-50 border-emerald-200":b.type==="event"?"bg-indigo-50 border-indigo-200":"bg-amber-50 border-amber-200"}`}>
-      <div className="flex items-center justify-between"><div className="font-medium break-words">{b.title}</div><div className="text-sm text-gray-600">{toHM(b.startMin)} – {toHM(b.endMin)}</div></div>
-      <div className="text-xs text-gray-500 mt-1">{b.type==="task"?"Planned work":b.type==="event"?"Fixed event":"Recovery"}</div>
-    </div>
-  );
-
-  // compute pure due list (not plan)
+  // pure due list
   const dueList = useMemo(()=>{
     const items=[];
     for(const t of tasks){ if(t.due && !t.completed) items.push({kind:"task", title:t.title, when:new Date(t.due)}); }
@@ -220,6 +209,14 @@ export default function AIPlanner(){
     for(const e of events){ if(e.start) items.push({kind:"event", title:e.title, when:new Date(e.start)}); }
     return items.sort((a,b)=>+a.when-+b.when);
   },[tasks,assignments,events]);
+
+  /* ---------- UI ---------- */
+  const blockCard=(b,i)=>(
+    <div key={i} className={`rounded-xl p-3 border w-full overflow-hidden ${b.type==="task"?"bg-emerald-50 border-emerald-200":b.type==="event"?"bg-indigo-50 border-indigo-200":"bg-amber-50 border-amber-200"}`}>
+      <div className="flex items-center justify-between"><div className="font-medium break-words">{b.title}</div><div className="text-sm text-gray-600">{toHM(b.startMin)} – {toHM(b.endMin)}</div></div>
+      <div className="text-xs text-gray-500 mt-1">{b.type==="task"?"Planned work":b.type==="event"?"Fixed event":"Recovery"}</div>
+    </div>
+  );
 
   return (
     <div className="min-h-[100vh] w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
@@ -234,7 +231,17 @@ export default function AIPlanner(){
           <div className="flex flex-wrap items-center gap-2">
             {/* auth */}
             <div className="flex items-center gap-2 rounded-xl border bg-white px-2 py-1">
-              {user ? (<><span className="text-sm">Signed in as <b>{user.email}</b></span><TextButton onClick={()=>supabase.auth.signOut()}>Sign out</TextButton></>) : (<><input type="email" placeholder="you@example.com" value={authEmail} onChange={(e)=>setAuthEmail(e.target.value)} className="px-2 py-1 rounded-lg border"/><TextButton onClick={async()=>{ if(!authEmail) return alert("Enter email"); const { error }=await supabase.auth.signInWithOtp({email:authEmail,options:{emailRedirectTo:location.href}}); if(error) alert(error.message); else alert("Magic link sent."); }}>Send magic link</TextButton></>)}
+              {user ? (
+                <>
+                  <span className="text-sm">Signed in as <b>{user.email}</b></span>
+                  <TextButton onClick={()=>supabase.auth.signOut()}>Sign out</TextButton>
+                </>
+              ) : (
+                <>
+                  <input type="email" placeholder="you@example.com" value={authEmail} onChange={(e)=>setAuthEmail(e.target.value)} className="px-2 py-1 rounded-lg border"/>
+                  <TextButton onClick={async()=>{ if(!authEmail) return alert("Enter email"); const { error }=await supabase.auth.signInWithOtp({email:authEmail,options:{emailRedirectTo:location.href}}); if(error) alert(error.message); else alert("Magic link sent."); }}>Send magic link</TextButton>
+                </>
+              )}
             </div>
 
             {/* profiles */}
@@ -262,7 +269,7 @@ export default function AIPlanner(){
             {/* AI Auto-plan toggle */}
             <button
               onClick={()=>{
-                if (showPlanner) { setShowPlanner(false); return; } // toggle OFF on second click
+                if (showPlanner) { setShowPlanner(false); return; }
                 setShowPlanner(true);
                 const sel=new Date(date+"T00:00");
                 setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd}));
@@ -274,9 +281,10 @@ export default function AIPlanner(){
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Left: Checklist + Due list */}
-          <section className="xl:col-span-1 space-y-6">
+        {/* ======= DRAGGABLE / RESIZABLE BOARD ======= */}
+        <BoardLayout profile={profile}>
+          {/* LEFT: Checklist + Due list */}
+          <section className="h-full overflow-hidden flex flex-col gap-6">
             <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden">
               <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Checklist</h2><span className="text-xs text-slate-500">Click ✓ to mark done • Edit times inline</span></div>
               <div className="rounded-xl border p-3 bg-slate-50 mb-3">
@@ -328,7 +336,7 @@ export default function AIPlanner(){
               </div>
             </div>
 
-            {/* Pure To-Do: everything due (not AI plan) */}
+            {/* Due list */}
             <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden">
               <h2 className="text-lg font-semibold mb-2">Due List</h2>
               <div className="text-xs text-slate-600 mb-2">Tasks, assignments, and events sorted by due/start time.</div>
@@ -344,9 +352,9 @@ export default function AIPlanner(){
             </div>
           </section>
 
-          {/* Middle: Planner (toggle) */}
-          <section className="xl:col-span-1">
-            <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden">
+          {/* MIDDLE: Planner (toggle) */}
+          <section className="h-full overflow-hidden">
+            <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden h-full">
               {!showPlanner ? (
                 <div className="text-sm text-slate-500">The AI planner is hidden. Click <b>AI Auto-plan</b> to build a schedule.</div>
               ) : view==="Day" ? (
@@ -363,9 +371,8 @@ export default function AIPlanner(){
             </div>
           </section>
 
-          {/* Right: Calendar + Events + Syllabus */}
-          <section className="xl:col-span-1 space-y-6">
-            {/* Calendar */}
+          {/* RIGHT: Calendar + Events + Syllabus */}
+          <section className="h-full overflow-hidden space-y-6">
             <CalendarMonth date={date} tasks={tasks} events={events} onSelect={(iso)=>{ setDate(iso); setShowDayPanel(true); }}/>
 
             {/* Events */}
@@ -457,7 +464,8 @@ export default function AIPlanner(){
               </div>
             </div>
           </section>
-        </div>
+        </BoardLayout>
+        {/* ======= END BOARD ======= */}
       </div>
 
       {/* Day details modal */}
