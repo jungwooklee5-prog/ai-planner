@@ -81,7 +81,7 @@ function autoSchedule({tasks,events,selectedDate,minStart,maxEnd}){
       for(let i=0;i<freeBlocks.length && remaining>0;i++){
         let [fs,fe]=freeBlocks[i]; const s=Math.max(fs,w[0]), e=Math.min(fe,w[1]); if(e-s<=0) continue;
         const chunk=Math.min(remaining,e-s,90); const start=s,end=s+chunk;
-        placed.push({ title:t.title, startMin:start, endMin=end, type:"task" });
+        placed.push({ title:t.title, startMin:start, endMin: end, type:"task" });
         remaining-=chunk;
         if(chunk>=50 && end+10<=fe){ placed.push({ title:"Break", startMin:end, endMin:end+10, type:"break" }); fs=end+10; } else fs=end;
         if(fs>=fe){ freeBlocks.splice(i,1); i--; } else freeBlocks[i]=[fs,fe];
