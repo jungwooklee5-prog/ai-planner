@@ -282,190 +282,242 @@ export default function AIPlanner(){
         </div>
 
         {/* ======= DRAGGABLE / RESIZABLE BOARD ======= */}
-        <BoardLayout profile={profile}>
-          {/* LEFT: Checklist + Due list */}
-          <section className="h-full overflow-hidden flex flex-col gap-6">
-            <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden">
-              <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Checklist</h2><span className="text-xs text-slate-500">Click ✓ to mark done • Edit times inline</span></div>
-              <div className="rounded-xl border p-3 bg-slate-50 mb-3">
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <input className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Task title" value={newTask.title} onChange={(e)=>setNewTask({...newTask, title:e.target.value})}/>
-                  <input type="number" min={10} step={5} className="px-3 py-2 rounded-lg border bg-white" placeholder="Est. mins" value={newTask.est} onChange={(e)=>setNewTask({...newTask, est:+e.target.value||30})}/>
-                  <select className="px-3 py-2 rounded-lg border bg-white" value={newTask.priority} onChange={(e)=>setNewTask({...newTask, priority:e.target.value})}><option>High</option><option>Medium</option><option>Low</option></select>
-                  <select className="px-3 py-2 rounded-lg border bg-white" value={newTask.tod} onChange={(e)=>setNewTask({...newTask, tod:e.target.value})}><option>Any</option><option>Morning</option><option>Afternoon</option><option>Evening</option></select>
-                  <input type="datetime-local" className="col-span-2 px-3 py-2 rounded-lg border bg-white" value={newTask.due} onChange={(e)=>setNewTask({...newTask, due:e.target.value})}/>
-                  <input className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Category (e.g., Research)" value={newTask.category} onChange={(e)=>setNewTask({...newTask, category:e.target.value})}/>
-                  <textarea rows={2} className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Notes" value={newTask.notes} onChange={(e)=>setNewTask({...newTask, notes:e.target.value})}/>
-                </div>
-                <button onClick={addTask} className="px-3 py-2 rounded-lg bg-emerald-600 text-white w-full">Add Task</button>
-              </div>
+        
+        {/* ======= DRAGGABLE / RESIZABLE BOARD (6 PANELS) ======= */}
+        <BoardLayout
+          profile={profile}
+          items={[
+            {
+              id: "checklist",
+              element: (
+                <section className="h-full overflow-hidden flex flex-col">
+                  <div className="rounded-2xl border bg-white p-4 shadow-sm h-full flex flex-col">
+                    <div className="mb-3 flex items-center justify-between shrink-0">
+                      <h2 className="text-lg font-semibold">Checklist</h2>
+                      <span className="text-xs text-slate-500">Click ✓ to mark done • Edit times inline</span>
+                    </div>
 
-              <div className="space-y-2 max-h-[44vh] overflow-auto pr-1">
-                {tasks.length===0 && <div className="text-sm text-slate-500">No tasks yet.</div>}
-                {tasks.map(t=>(
-                  <div key={t.id} className={`rounded-xl border p-3 bg-white flex flex-col gap-2 ${t.completed?"opacity-60":""}`}>
-                    <div className="flex items-start gap-3">
-                      <button onClick={()=>toggleDone(t.id)} className={`h-5 w-5 mt-1 rounded border flex items-center justify-center ${t.completed?"bg-emerald-500 border-emerald-600 text-white":"bg-white"}`}>{t.completed?"✓":""}</button>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="font-medium break-words">{t.title}</div>
-                          <button className="text-slate-500 text-sm" onClick={()=>removeTask(t.id)}>✕</button>
-                        </div>
-                        <div className="text-xs text-slate-600 mt-1 flex flex-wrap gap-2 items-center">
-                          <span>Est: <input type="number" min={5} className="w-16 px-2 py-1 border rounded ml-1" value={t.est} onChange={(e)=>updateTask(t.id,{est:+e.target.value||t.est})}/>m</span>
-                          <span>Priority:
-                            <select className="ml-1 px-2 py-1 border rounded" value={t.priority} onChange={(e)=>updateTask(t.id,{priority:e.target.value})}>
-                              <option>High</option><option>Medium</option><option>Low</option>
-                            </select>
-                          </span>
-                          <span>Time:
-                            <select className="ml-1 px-2 py-1 border rounded" value={t.tod||"Any"} onChange={(e)=>updateTask(t.id,{tod:e.target.value})}>
-                              <option>Any</option><option>Morning</option><option>Afternoon</option><option>Evening</option>
-                            </select>
-                          </span>
-                          <span className="flex items-center gap-1">Due:
-                            <input type="datetime-local" className="px-2 py-1 border rounded" value={t.due||toLocalInput(new Date())} onChange={(e)=>updateTask(t.id,{due:e.target.value})}/>
-                          </span>
-                        </div>
-                        {t.category && <div className="text-[11px] mt-1"><Chip>{t.category}</Chip></div>}
-                        {t.notes && <div className="text-xs text-slate-500 mt-1 break-words">{t.notes}</div>}
+                    <div className="rounded-xl border p-3 bg-slate-50 mb-3 shrink-0">
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <input className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Task title" value={newTask.title} onChange={(e)=>setNewTask({...newTask, title:e.target.value})}/>
+                        <input type="number" min={10} step={5} className="px-3 py-2 rounded-lg border bg-white" placeholder="Est. mins" value={newTask.est} onChange={(e)=>setNewTask({...newTask, est:+e.target.value||30})}/>
+                        <select className="px-3 py-2 rounded-lg border bg-white" value={newTask.priority} onChange={(e)=>setNewTask({...newTask, priority:e.target.value})}><option>High</option><option>Medium</option><option>Low</option></select>
+                        <select className="px-3 py-2 rounded-lg border bg-white" value={newTask.tod} onChange={(e)=>setNewTask({...newTask, tod:e.target.value})}><option>Any</option><option>Morning</option><option>Afternoon</option><option>Evening</option></select>
+                        <input type="datetime-local" className="col-span-2 px-3 py-2 rounded-lg border bg-white" value={newTask.due} onChange={(e)=>setNewTask({...newTask, due:e.target.value})}/>
+                        <input className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Category (e.g., Research)" value={newTask.category} onChange={(e)=>setNewTask({...newTask, category:e.target.value})}/>
+                        <textarea rows={2} className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Notes" value={newTask.notes} onChange={(e)=>setNewTask({...newTask, notes:e.target.value})}/>
                       </div>
+                      <button onClick={addTask} className="px-3 py-2 rounded-lg bg-emerald-600 text-white w-full">Add Task</button>
+                    </div>
+
+                    <div className="min-h-0 grow overflow-auto pr-1 space-y-2">
+                      {tasks.length===0 && <div className="text-sm text-slate-500">No tasks yet.</div>}
+                      {tasks.map(t=>(
+                        <div key={t.id} className={`rounded-xl border p-3 bg-white flex flex-col gap-2 ${t.completed?"opacity-60":""}`}>
+                          <div className="flex items-start gap-3">
+                            <button onClick={()=>toggleDone(t.id)} className={`h-5 w-5 mt-1 rounded border flex items-center justify-center ${t.completed?"bg-emerald-500 border-emerald-600 text-white":"bg-white"}`}>{t.completed?"✓":""}</button>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="font-medium break-words">{t.title}</div>
+                                <button className="text-slate-500 text-sm" onClick={()=>removeTask(t.id)}>✕</button>
+                              </div>
+                              <div className="text-xs text-slate-600 mt-1 flex flex-wrap gap-2 items-center">
+                                <span>Est: <input type="number" min={5} className="w-16 px-2 py-1 border rounded ml-1" value={t.est} onChange={(e)=>updateTask(t.id,{est:+e.target.value||t.est})}/>m</span>
+                                <span>Priority:
+                                  <select className="ml-1 px-2 py-1 border rounded" value={t.priority} onChange={(e)=>updateTask(t.id,{priority:e.target.value})}>
+                                    <option>High</option><option>Medium</option><option>Low</option>
+                                  </select>
+                                </span>
+                                <span>Time:
+                                  <select className="ml-1 px-2 py-1 border rounded" value={t.tod||"Any"} onChange={(e)=>updateTask(t.id,{tod:e.target.value})}>
+                                    <option>Any</option><option>Morning</option><option>Afternoon</option><option>Evening</option>
+                                  </select>
+                                </span>
+                                <span className="flex items-center gap-1">Due:
+                                  <input type="datetime-local" className="px-2 py-1 border rounded" value={t.due||toLocalInput(new Date())} onChange={(e)=>updateTask(t.id,{due:e.target.value})}/>
+                                </span>
+                              </div>
+                              {t.category && <div className="text-[11px] mt-1"><span className="inline-block text-[11px] px-2 py-0.5 rounded-full border bg-slate-50 mr-1">{t.category}</span></div>}
+                              {t.notes && <div className="text-xs text-slate-500 mt-1 break-words">{t.notes}</div>}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Due list */}
-            <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden">
-              <h2 className="text-lg font-semibold mb-2">Due List</h2>
-              <div className="text-xs text-slate-600 mb-2">Tasks, assignments, and events sorted by due/start time.</div>
-              <div className="space-y-2 max-h-[28vh] overflow-auto pr-1">
-                {dueList.length===0 && <div className="text-sm text-slate-500">Nothing due yet.</div>}
-                {dueList.map((x,i)=>(
-                  <div key={i} className="rounded-lg border p-2 bg-slate-50">
-                    <div className="text-sm font-medium break-words">{x.title}</div>
-                    <div className="text-[11px] text-slate-600">{x.when.toLocaleString()} • {x.kind}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* MIDDLE: Planner (toggle) */}
-          <section className="h-full overflow-hidden">
-            <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden h-full">
-              {!showPlanner ? (
-                <div className="text-sm text-slate-500">The AI planner is hidden. Click <b>AI Auto-plan</b> to build a schedule.</div>
-              ) : view==="Day" ? (
-                <>
-                  <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Plan for {dayLabel}</h2><button onClick={()=>{ const sel=new Date(date+"T00:00"); setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd})); }} className="px-3 py-1.5 rounded-lg border">Rebuild</button></div>
-                  <div className="grid gap-2">{timeline.length?timeline.map(blockCard):<div className="text-sm text-slate-500">No items planned yet.</div>}</div>
-                </>
-              ) : (
-                <>
-                  <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Week Plan (Mon–Sun)</h2></div>
-                  <div className="grid gap-4">{Array.from({length:7}).map((_,i)=>{ const d=new Date(date+"T00:00"); d.setDate(d.getDate()-((d.getDay()+6)%7)+i); const blocks=autoSchedule({tasks,events,selectedDate:d,minStart,maxEnd}); return (<div key={i} className="rounded-xl border p-3"><div className="text-sm font-medium mb-2">{d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"})}</div><div className="grid gap-2">{blocks.length?blocks.map(blockCard):<div className="text-xs text-slate-500">No items planned.</div>}</div></div>); })}</div>
-                </>
-              )}
-            </div>
-          </section>
-
-          {/* RIGHT: Calendar + Events + Syllabus */}
-          <section className="h-full overflow-hidden space-y-6">
-            <CalendarMonth date={date} tasks={tasks} events={events} onSelect={(iso)=>{ setDate(iso); setShowDayPanel(true); }}/>
-
-            {/* Events */}
-            <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden">
-              <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Calendar Events</h2></div>
-
-              <div className="rounded-xl border p-3 bg-slate-50 mb-3">
-                <div className="text-sm font-medium mb-2">Upload schedule (.ics / .csv / image)</div>
-                <input type="file" accept=".ics,.csv,image/*" multiple onChange={handleEventUpload} className="block w-full text-sm" />
-              </div>
-
-              <div className="rounded-xl border p-3 bg-slate-50 mb-3">
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <input className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Event title" value={newEvent.title} onChange={(e)=>setNewEvent({...newEvent, title:e.target.value})}/>
-                  <label className="col-span-2 text-sm flex items-center gap-2">
-                    <input type="checkbox" checked={newEvent.allDay} onChange={(e)=>setNewEvent({...newEvent, allDay:e.target.checked})}/> For entire day
-                  </label>
-                  {!newEvent.allDay && (
-                    <>
-                      <input type="datetime-local" className="px-3 py-2 rounded-lg border bg-white" value={newEvent.start} onChange={(e)=>setNewEvent({...newEvent, start:e.target.value})}/>
-                      <input type="datetime-local" className="px-3 py-2 rounded-lg border bg-white" value={newEvent.end} onChange={(e)=>setNewEvent({...newEvent, end:e.target.value})}/>
-                    </>
-                  )}
-                  <input className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Location (optional)" value={newEvent.location} onChange={(e)=>setNewEvent({...newEvent, location:e.target.value})}/>
-                  <label className="col-span-2 text-sm flex items-center gap-2">
-                    <input type="checkbox" checked={newEvent.repeatWeekly} onChange={(e)=>setNewEvent({...newEvent, repeatWeekly:e.target.checked})}/> Repeat every week
-                  </label>
-                </div>
-                <button onClick={addEvent} className="px-3 py-2 rounded-lg bg-indigo-600 text-white w-full">Add Event</button>
-              </div>
-
-              <div className="space-y-2 max-h-[40vh] overflow-auto pr-1">
-                {events.length===0 && <div className="text-sm text-slate-500">No events yet.</div>}
-                {events.map(e=>{ const s=parseLocalDT(e.start), ed=parseLocalDT(e.end);
-                  return (<div key={e.id} className="rounded-xl border p-3 bg-white flex items-start gap-3">
-                    <div className="flex-1">
-                      <div className="font-medium break-words">{e.title} {e.repeatWeekly && <span className="text-[11px] ml-1 px-2 py-0.5 rounded-full border bg-slate-50">weekly</span>} {e.allDay && <span className="text-[11px] ml-1 px-2 py-0.5 rounded-full border bg-slate-50">all-day</span>}</div>
-                      <div className="text-xs text-slate-600 mt-0.5">{e.allDay ? "All day" : `${s?s.toLocaleString():"?"} – ${ed?ed.toLocaleString():"?"}`}</div>
-                      {e.location && <div className="text-xs text-slate-500 mt-0.5">{e.location}</div>}
+                </section>
+              )
+            },
+            {
+              id: "due",
+              element: (
+                <section className="h-full overflow-hidden flex flex-col">
+                  <div className="rounded-2xl border bg-white p-4 shadow-sm h-full flex flex-col">
+                    <h2 className="text-lg font-semibold mb-2 shrink-0">Due List</h2>
+                    <div className="text-xs text-slate-600 mb-2 shrink-0">Tasks, assignments, and events in due/start order.</div>
+                    <div className="min-h-0 grow overflow-auto pr-1 space-y-2">
+                      {dueList.length===0 && <div className="text-sm text-slate-500">Nothing due yet.</div>}
+                      {dueList.map((x,i)=>(
+                        <div key={i} className="rounded-lg border p-2 bg-slate-50">
+                          <div className="text-sm font-medium break-words">{x.title}</div>
+                          <div className="text-[11px] text-slate-600">{x.when.toLocaleString()} • {x.kind}</div>
+                        </div>
+                      ))}
                     </div>
-                    <button className="text-slate-500 text-sm" onClick={()=>removeEvent(e.id)}>✕</button>
-                  </div>);
-                })}
-              </div>
-            </div>
+                  </div>
+                </section>
+              )
+            },
+            {
+              id: "planner",
+              element: (
+                <section className="h-full overflow-hidden flex flex-col">
+                  <div className="rounded-2xl border bg-white p-4 shadow-sm h-full flex flex-col">
+                    {!showPlanner ? (
+                      <div className="text-sm text-slate-500">The AI planner is hidden. Click <b>AI Auto-plan</b> to build a schedule.</div>
+                    ) : view==="Day" ? (
+                      <>
+                        <div className="mb-3 flex items-center justify-between shrink-0">
+                          <h2 className="text-lg font-semibold">Plan for {new Date(date+"T00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"})}</h2>
+                          <button onClick={()=>{ const sel=new Date(date+"T00:00"); setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart:startHour*60,maxEnd:endHour*60})); }} className="px-3 py-1.5 rounded-lg border">Rebuild</button>
+                        </div>
+                        <div className="min-h-0 grow overflow-auto grid gap-2">
+                          {timeline.length?timeline.map((b,i)=>(
+                            <div key={i} className={`rounded-xl p-3 border w-full overflow-hidden ${b.type==="task"?"bg-emerald-50 border-emerald-200":b.type==="event"?"bg-indigo-50 border-indigo-200":"bg-amber-50 border-amber-200"}`}>
+                              <div className="flex items-center justify-between"><div className="font-medium break-words">{b.title}</div><div className="text-sm text-gray-600">{String(Math.floor(b.startMin/60)).padStart(2,'0')}:{String(b.startMin%60).padStart(2,'0')} – {String(Math.floor(b.endMin/60)).padStart(2,'0')}:{String(b.endMin%60).padStart(2,'0')}</div></div>
+                              <div className="text-xs text-gray-500 mt-1">{b.type==="task"?"Planned work":b.type==="event"?"Fixed event":"Recovery"}</div>
+                            </div>
+                          )):<div className="text-sm text-slate-500">No items planned yet.</div>}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="mb-3 flex items-center justify-between shrink-0"><h2 className="text-lg font-semibold">Week Plan (Mon–Sun)</h2></div>
+                        <div className="min-h-0 grow overflow-auto grid gap-4">
+                          {Array.from({length:7}).map((_,i)=>{ const d=new Date(date+"T00:00"); d.setDate(d.getDate()-((d.getDay()+6)%7)+i); const blocks=autoSchedule({tasks,events,selectedDate:d,minStart:startHour*60,maxEnd:endHour*60}); return (<div key={i} className="rounded-xl border p-3"><div className="text-sm font-medium mb-2">{d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"})}</div><div className="grid gap-2">{blocks.length?blocks.map((b,j)=>(
+                            <div key={j} className={`rounded-xl p-3 border w-full overflow-hidden ${b.type==="task"?"bg-emerald-50 border-emerald-200":b.type==="event"?"bg-indigo-50 border-indigo-200":"bg-amber-50 border-amber-200"}`}>
+                              <div className="flex items-center justify-between"><div className="font-medium break-words">{b.title}</div><div className="text-sm text-gray-600">{String(Math.floor(b.startMin/60)).padStart(2,'0')}:{String(b.startMin%60).padStart(2,'0')} – {String(Math.floor(b.endMin/60)).padStart(2,'0')}:{String(b.endMin%60).padStart(2,'0')}</div></div>
+                              <div className="text-xs text-gray-500 mt-1">{b.type==="task"?"Planned work":b.type==="event"?"Fixed event":"Recovery"}</div>
+                            </div>
+                          )):<div className="text-xs text-slate-500">No items planned.</div>}</div></div>); })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </section>
+              )
+            },
+            {
+              id: "calendar",
+              element: (
+                <section className="h-full overflow-hidden flex flex-col">
+                  <div className="rounded-2xl border bg-white p-4 shadow-sm h-full flex flex-col">
+                    <div className="shrink-0 mb-3"><h2 className="text-lg font-semibold">Calendar</h2></div>
+                    <div className="min-h-0 grow overflow-auto">
+                      <CalendarMonth date={date} tasks={tasks} events={events} onSelect={(iso)=>{ setDate(iso); setShowDayPanel(true); }}/>
+                    </div>
+                  </div>
+                </section>
+              )
+            },
+            {
+              id: "events",
+              element: (
+                <section className="h-full overflow-hidden flex flex-col">
+                  <div className="rounded-2xl border bg-white p-4 shadow-sm h-full flex flex-col">
+                    <h2 className="text-lg font-semibold mb-3 shrink-0">Calendar Events</h2>
 
-            {/* Syllabus → Assignments */}
-            <div className="rounded-2xl border bg-white p-4 shadow-sm overflow-hidden">
-              <div className="mb-3">
-                <h2 className="text-lg font-semibold">Syllabus → Assignments</h2>
-                <p className="text-xs text-slate-600">Upload .pdf/.docx/.txt or an image. Detected items show below.</p>
-              </div>
-              <div className="rounded-xl border p-3 bg-slate-50 mb-3">
-                <input type="file" accept=".pdf,.doc,.docx,.txt,image/*" multiple onChange={handleSyllabusUpload} className="block w-full text-sm" />
-                <div className="mt-2"><TextButton onClick={()=>setDebugOpen(v=>!v)}>{debugOpen?"Hide":"Show"} debug</TextButton></div>
-              </div>
+                    <div className="rounded-xl border p-3 bg-slate-50 mb-3 shrink-0">
+                      <div className="text-sm font-medium mb-2">Upload schedule (.ics / .csv / image)</div>
+                      <input type="file" accept=".ics,.csv,image/*" multiple onChange={handleEventUpload} className="block w-full text-sm" />
+                    </div>
 
-              {debugOpen && (
-                <div className="rounded-xl border p-3 bg-slate-50 mb-3 text-xs text-slate-700 max-h-64 overflow-auto">
-                  <div className="font-semibold mb-1">Matched lines ({lastMatches.length}):</div>
-                  {lastMatches.length ? lastMatches.slice(0,50).map((m,i)=><div key={i} className="mb-1">• {m}</div>) : <div>— none —</div>}
-                  <div className="font-semibold mt-3 mb-1">Extracted text (first ~20k chars):</div>
-                  <pre className="whitespace-pre-wrap">{lastText || "— no text yet —"}</pre>
-                </div>
-              )}
-
-              <div className="space-y-2 max-h-[38vh] overflow-auto pr-1">
-                {assignments.length===0 && <div className="text-sm text-slate-500">No assignments detected yet.</div>}
-                {assignments.map(a=>(
-                  <div key={a.id} className="rounded-xl border p-3 bg-white">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-medium break-words">{a.title}</div>
-                      <div className="flex items-center gap-2">
-                        {a.dueISO && <div className="text-xs text-slate-600">Due: {new Date(a.dueISO).toLocaleString()}</div>}
-                        <button className="text-xs px-2 py-1 rounded border bg-white" onClick={()=> setAssignments(prev => prev.filter(x=>x.id!==a.id))}>Delete</button>
+                    <div className="rounded-xl border p-3 bg-slate-50 mb-3 shrink-0">
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <input className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Event title" value={newEvent.title} onChange={(e)=>setNewEvent({...newEvent, title:e.target.value})}/>
+                        <label className="col-span-2 text-sm flex items-center gap-2">
+                          <input type="checkbox" checked={newEvent.allDay} onChange={(e)=>setNewEvent({...newEvent, allDay:e.target.checked})}/> For entire day
+                        </label>
+                        {!newEvent.allDay && (
+                          <>
+                            <input type="datetime-local" className="px-3 py-2 rounded-lg border bg-white" value={newEvent.start} onChange={(e)=>setNewEvent({...newEvent, start:e.target.value})}/>
+                            <input type="datetime-local" className="px-3 py-2 rounded-lg border bg-white" value={newEvent.end} onChange={(e)=>setNewEvent({...newEvent, end:e.target.value})}/>
+                          </>
+                        )}
+                        <input className="col-span-2 px-3 py-2 rounded-lg border bg-white" placeholder="Location (optional)" value={newEvent.location} onChange={(e)=>setNewEvent({...newEvent, location:e.target.value})}/>
+                        <label className="col-span-2 text-sm flex items-center gap-2">
+                          <input type="checkbox" checked={newEvent.repeatWeekly} onChange={(e)=>setNewEvent({...newEvent, repeatWeekly:e.target.checked})}/> Repeat every week
+                        </label>
                       </div>
+                      <button onClick={addEvent} className="px-3 py-2 rounded-lg bg-indigo-600 text-white w-full">Add Event</button>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-1 break-words line-clamp-2">{a.source}</div>
-                    <div className="mt-2 flex gap-2">
-                      <button className="px-2 py-1 rounded border text-sm"
-                        onClick={()=>setTasks(p=>[
-                          { id:Math.random().toString(36).slice(2,9), title:a.title, est:60, due:a.dueISO||toLocalInput(new Date()), priority:"High", category:"Academics", tod:"Any", notes:"Imported from syllabus" },
-                          ...p
-                        ])}
-                      >Add as Task</button>
+
+                    <div className="min-h-0 grow overflow-auto pr-1 space-y-2">
+                      {events.length===0 && <div className="text-sm text-slate-500">No events yet.</div>}
+                      {events.map(e=>{ const s=new Date(e.start), ed=new Date(e.end);
+                        return (<div key={e.id} className="rounded-xl border p-3 bg-white flex items-start gap-3">
+                          <div className="flex-1">
+                            <div className="font-medium break-words">{e.title} {e.repeatWeekly && <span className="text-[11px] ml-1 px-2 py-0.5 rounded-full border bg-slate-50">weekly</span>} {e.allDay && <span className="text-[11px] ml-1 px-2 py-0.5 rounded-full border bg-slate-50">all-day</span>}</div>
+                            <div className="text-xs text-slate-600 mt-0.5">{e.allDay ? "All day" : `${s.toLocaleString()} – ${ed.toLocaleString()}`}</div>
+                            {e.location && <div className="text-xs text-slate-500 mt-0.5">{e.location}</div>}
+                          </div>
+                          <button className="text-slate-500 text-sm" onClick={()=>removeEvent(e.id)}>✕</button>
+                        </div>);
+                      })}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        </BoardLayout>
+                </section>
+              )
+            },
+            {
+              id: "syllabus",
+              element: (
+                <section className="h-full overflow-hidden flex flex-col">
+                  <div className="rounded-2xl border bg-white p-4 shadow-sm h-full flex flex-col">
+                    <div className="mb-3 shrink-0"><h2 className="text-lg font-semibold">Syllabus → Assignments</h2><p className="text-xs text-slate-600">Upload .pdf/.docx/.txt or an image.</p></div>
+                    <div className="rounded-xl border p-3 bg-slate-50 mb-3 shrink-0">
+                      <input type="file" accept=".pdf,.doc,.docx,.txt,image/*" multiple onChange={handleSyllabusUpload} className="block w-full text-sm" />
+                      <div className="mt-2"><button onClick={()=>setDebugOpen(v=>!v)} className="text-xs underline">{debugOpen?"Hide":"Show"} debug</button></div>
+                    </div>
+
+                    {debugOpen && (
+                      <div className="rounded-xl border p-3 bg-slate-50 mb-3 text-xs text-slate-700 max-h-48 overflow-auto">
+                        <div className="font-semibold mb-1">Matched lines ({lastMatches.length}):</div>
+                        {lastMatches.length ? lastMatches.slice(0,50).map((m,i)=><div key={i} className="mb-1">• {m}</div>) : <div>— none —</div>}
+                      </div>
+                    )}
+
+                    <div className="min-h-0 grow overflow-auto pr-1 space-y-2">
+                      {assignments.length===0 && <div className="text-sm text-slate-500">No assignments detected yet.</div>}
+                      {assignments.map(a=>(
+                        <div key={a.id} className="rounded-xl border p-3 bg-white">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-medium break-words">{a.title}</div>
+                            <div className="flex items-center gap-2">
+                              {a.dueISO && <div className="text-xs text-slate-600">Due: {new Date(a.dueISO).toLocaleString()}</div>}
+                              <button className="text-xs px-2 py-1 rounded border bg-white" onClick={()=> setAssignments(prev => prev.filter(x=>x.id!==a.id))}>Delete</button>
+                            </div>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1 break-words line-clamp-2">{a.source}</div>
+                          <div className="mt-2 flex gap-2">
+                            <button className="px-2 py-1 rounded border text-sm"
+                              onClick={()=>setTasks(p=>[
+                                { id:Math.random().toString(36).slice(2,9), title:a.title, est:60, due:a.dueISO||toLocalInput(new Date()), priority:"High", category:"Academics", tod:"Any", notes:"Imported from syllabus" },
+                                ...p
+                              ])}
+                            >Add as Task</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              )
+            },
+          ]}
+        />
         {/* ======= END BOARD ======= */}
+/* ======= END BOARD ======= */}
       </div>
 
       {/* Day details modal */}
