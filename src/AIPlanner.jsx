@@ -1,9 +1,9 @@
-/* AI Planner — v5 (Accounts + Cloud Sync via Supabase)
-   - Blank on first run
-   - Multi-user profiles (?u=profile) — isolated per Supabase user
-   - Autosave JSON to 'planners' table (row per user+profile)
-   - Email magic-link sign in; Sign out
-   - Keeps uploads + syllabus parsing + debug
+/* AI Planner — Checklist-first + On-demand Planner + Event Notifications + Chat dock
+   - Left: Checklist (tasks)
+   - Middle: Planner panel appears only after clicking "AI Auto-plan"
+   - Right: Events & Syllabus import
+   - Browser notifications 10 minutes before events
+   - Chat dock (imports ./components/ChatBox)
 */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
@@ -11,6 +11,7 @@ import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
 import { convertToHtml } from "mammoth/mammoth.browser";
 import * as chrono from "chrono-node";
 import { supabase } from "./lib/supabase";
+import ChatBox from "./components/ChatBox";
 
 pdfjsLib.GlobalWorkerOptions.workerPort = new pdfWorker();
 
@@ -57,9 +58,9 @@ function autoSchedule({tasks,events,selectedDate,minStart,maxEnd}){
       for(let i=0;i<freeBlocks.length && remaining>0;i++){
         let [fs,fe]=freeBlocks[i]; const s=Math.max(fs,w[0]), e=Math.min(fe,w[1]); if(e-s<=0) continue;
         const chunk=Math.min(remaining,e-s,90); const start=s,end=s+chunk;
-        placed.push({title:t.title,startMin:start,endMin:end,type:"task"});
+        placed.push({ title:t.title, startMin:start, endMin:end, type:"task" });
         remaining-=chunk;
-        if(chunk>=50 && end+10<=fe){ placed.push({title:"Break",startMin:end,endMin:end+10,type:"break"}); fs=end+10; } else fs=end;
+        if(chunk>=50 && end+10<=fe){ placed.push({ title:"Break", startMin:end, endMin:end+10, type:"break" }); fs=end+10; } else fs=end;
         if(fs>=fe){ freeBlocks.splice(i,1); i--; } else freeBlocks[i]=[fs,fe];
       }
       if(remaining<=0) break;
@@ -197,6 +198,7 @@ export default function AIPlanner(){
   const [debugOpen,setDebugOpen]=useState(false);
   const [lastText,setLastText]=useState("");
   const [lastMatches,setLastMatches]=useState([]);
+  const [showPlanner, setShowPlanner] = useState(false); // planner hidden until Auto-plan
   const minStart=startHour*60, maxEnd=endHour*60;
   const dayLabel=useMemo(()=>formatDateLabel(date),[date]);
 
@@ -213,7 +215,7 @@ export default function AIPlanner(){
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // change profile updates URL + load cloud doc if signed in
+  // change profile updates URL + load cloud/local
   useEffect(()=>{
     ensureProfile(profile);
     setQParam("u", profile==="default" ? "" : profile);
@@ -253,18 +255,14 @@ export default function AIPlanner(){
     setStartHour(s.startHour ?? 6); setEndHour(s.endHour ?? 22);
   }
 
-  // debounced autosave (cloud if logged in, else local)
+  // debounced autosave
   const saveTimer = useRef(null);
   useEffect(()=>{
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       const payload = { tasks, events, assignments, settings: { startHour, endHour } };
       if (user) {
-        supabase.from("planners").upsert({
-          user_id: user.id,
-          profile,
-          data: payload,
-        }).then(({ error }) => { if (error) console.error(error); });
+        supabase.from("planners").upsert({ user_id: user.id, profile, data: payload }).then(({ error }) => { if (error) console.error(error); });
       } else {
         ls.set(dataKey(profile), payload);
         ls.set(LAST_KEY, profile);
@@ -275,7 +273,7 @@ export default function AIPlanner(){
 
   // build timeline
   useEffect(()=>{ regenerate(); },[]);
-  useEffect(()=>{ regenerate(); },[date,tasks,events,startHour,endHour]);
+  useEffect(()=>{ if (showPlanner) regenerate(); },[showPlanner,date,tasks,events,startHour,endHour]);
   function regenerate(){ const sel=new Date(date+"T00:00"); setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd})); }
 
   // task/event ops
@@ -338,13 +336,36 @@ export default function AIPlanner(){
     const { error } = await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: location.href } });
     if (error) alert(error.message); else alert("Magic link sent. Check your email.");
   }
-  async function signOut(){
-    await supabase.auth.signOut();
-  }
+  async function signOut(){ await supabase.auth.signOut(); }
 
+  // week data
   const weekData=useMemo(()=>{ if(view!=="Week") return null;
     const mon=startOfWeekISO(date); return Array.from({length:7},(_,i)=>{ const d=addDays(mon,i); return { date:d, blocks:autoSchedule({tasks,events,selectedDate:d,minStart,maxEnd}) }; });
   },[view,date,tasks,events,minStart,maxEnd]);
+
+  // event notifications (10 mins before)
+  const notifiedIds = useRef(new Set());
+  useEffect(()=>{
+    if (typeof window === "undefined") return;
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    const t = setInterval(()=>{
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      const now = new Date();
+      const soon = new Date(now.getTime() + 10*60*1000);
+      for (const e of events){
+        const s = parseLocalDT(e.start); if(!s) continue;
+        if (s > now && s <= soon){
+          const key = e.id || `${e.title}|${e.start}`;
+          if (notifiedIds.current.has(key)) continue;
+          notifiedIds.current.add(key);
+          new Notification(e.title || "Upcoming event", { body: `${s.toLocaleString()}${e.location?` • ${e.location}`:""}` });
+        }
+      }
+    }, 30*1000);
+    return ()=>clearInterval(t);
+  }, [events]);
 
   const blockCard=(b,i)=>(
     <div key={i} className={`rounded-xl p-3 border ${b.type==="task"?"bg-emerald-50 border-emerald-200":b.type==="event"?"bg-indigo-50 border-indigo-200":"bg-amber-50 border-amber-200"}`}>
@@ -360,9 +381,7 @@ export default function AIPlanner(){
         <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold">AI Planner</h1>
-            <p className="text-slate-600">
-              Blank first run • Per-user cloud profiles • Import schedules & syllabi • Export to calendar
-            </p>
+            <p className="text-slate-600">Blank first run • Per-user cloud profiles • Import schedules & syllabi • Export to calendar</p>
           </div>
 
           {/* Auth + Profile row */}
@@ -376,13 +395,7 @@ export default function AIPlanner(){
                 </>
               ) : (
                 <>
-                  <input
-                    type="email"
-                    placeholder="you@example.com"
-                    value={authEmail}
-                    onChange={(e)=>setAuthEmail(e.target.value)}
-                    className="px-2 py-1 rounded-lg border"
-                  />
+                  <input type="email" placeholder="you@example.com" value={authEmail} onChange={(e)=>setAuthEmail(e.target.value)} className="px-2 py-1 rounded-lg border"/>
                   <TextButton onClick={signInWithEmail}>Send magic link</TextButton>
                 </>
               )}
@@ -419,7 +432,7 @@ export default function AIPlanner(){
                 const url = new URL(location.href);
                 url.searchParams.set("u", profile);
                 navigator.clipboard.writeText(url.toString()).then(()=>alert("Profile link copied!"));
-              }}>Share link</TextButton>
+              }}>Copy link</TextButton>
             </div>
 
             {/* View / date / hours / actions */}
@@ -434,7 +447,11 @@ export default function AIPlanner(){
               <span>–</span>
               <input type="number" min={1} max={24} value={endHour} onChange={(e)=> setEndHour(Math.min(24,Math.max(1, +e.target.value||24)))} className="w-16 px-2 py-2 rounded-xl border bg-white"/>
             </div>
-            <button onClick={()=>{ const sel=new Date(date+"T00:00"); setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd})); }} className="px-4 py-2 rounded-xl bg-black text-white">Auto-plan</button>
+            <button onClick={()=>{
+              setShowPlanner(true);
+              const sel=new Date(date+"T00:00");
+              setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd}));
+            }} className="px-4 py-2 rounded-xl bg-black text-white">AI Auto-plan</button>
             <button onClick={()=>{
               const sel=new Date(date+"T00:00");
               const planned=autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd});
@@ -448,10 +465,10 @@ export default function AIPlanner(){
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Left: Tasks */}
+          {/* Left: Checklist */}
           <section className="xl:col-span-1">
             <div className="rounded-2xl border bg-white p-4 shadow-sm">
-              <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Tasks</h2><span className="text-xs text-slate-500">Click ✓ to mark done</span></div>
+              <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Checklist</h2><span className="text-xs text-slate-500">Click ✓ to mark done</span></div>
               {/* New Task */}
               <div className="rounded-xl border p-3 bg-slate-50 mb-3">
                 <div className="grid grid-cols-2 gap-2 mb-2">
@@ -495,10 +512,14 @@ export default function AIPlanner(){
             </div>
           </section>
 
-          {/* Middle: Plan */}
+          {/* Middle: Plan (hidden until AI Auto-plan) */}
           <section className="xl:col-span-1">
             <div className="rounded-2xl border bg-white p-4 shadow-sm">
-              {view==="Day" ? (
+              {!showPlanner ? (
+                <div className="text-sm text-slate-500">
+                  The AI planner is hidden. Click <b>AI Auto-plan</b> (top-right) to build a schedule from your checklist and events.
+                </div>
+              ) : view==="Day" ? (
                 <>
                   <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Plan for {dayLabel}</h2><div className="flex gap-2"><button onClick={()=>{ const sel=new Date(date+"T00:00"); setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd})); }} className="px-3 py-1.5 rounded-lg border">Rebuild</button></div></div>
                   <div className="grid gap-2">{timeline.length?timeline.map(blockCard):<div className="text-sm text-slate-500">No items planned yet.</div>}</div>
@@ -591,15 +612,18 @@ export default function AIPlanner(){
                           ...p
                         ])}
                       >Add as Task</button>
-                    </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
+          </div>
 
           </section>
         </div>
       </div>
+
+      {/* Chat dock */}
+      <ChatBox/>
     </div>
   );
 }
