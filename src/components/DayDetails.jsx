@@ -1,5 +1,5 @@
 import React from "react";
-import { toYMD, fromYMDLocal, addDays, expandWeeklyInRange } from "../lib/dates";
+import { fromYMDLocal, addDays, expandWeeklyInRange, ymdLocalFromISO } from "../lib/dates";
 
 export default function DayDetails({ open, isoDate, tasks, events, onClose }) {
   if (!open) return null;
@@ -7,11 +7,10 @@ export default function DayDetails({ open, isoDate, tasks, events, onClose }) {
   const dayStart = fromYMDLocal(isoDate);
   const dayEnd   = addDays(dayStart, 1);
 
-  // Expand weekly recurrences over just this 1-day window
   const expanded = expandWeeklyInRange(events, dayStart, dayEnd);
 
-  const eventsToday = expanded.filter(e => (e.start||"").slice(0,10) === isoDate);
-  const tasksDue = (tasks||[]).filter(t => t.due && !t.completed && t.due.slice(0,10) === isoDate);
+  const eventsToday = expanded.filter(e => e.start && ymdLocalFromISO(e.start) === isoDate);
+  const tasksDue    = (tasks||[]).filter(t => t.due && !t.completed && ymdLocalFromISO(t.due) === isoDate);
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">

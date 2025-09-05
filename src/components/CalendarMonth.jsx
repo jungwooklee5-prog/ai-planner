@@ -1,17 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { toYMD, startOfGrid, startOfMonth, addDays, expandWeeklyInRange } from "../lib/dates";
+import { toYMD, startOfGrid, startOfMonth, addDays, expandWeeklyInRange, ymdLocalFromISO } from "../lib/dates";
 
-const pad = n => String(n).padStart(2,"0");
-const ymd = toYMD;
 function addMonths(d, n){ return new Date(d.getFullYear(), d.getMonth()+n, 1); }
 
-export default function CalendarMonth({
-  date,         // ISO "YYYY-MM-DD"
-  tasks = [],
-  events = [],
-  onSelect,
-  onMonthChange,
-}) {
+export default function CalendarMonth({ date, tasks=[], events=[], onSelect, onMonthChange }) {
   const init = useMemo(()=> new Date(date + "T00:00"), [date]);
   const [month, setMonth] = useState(startOfMonth(init));
 
@@ -20,26 +12,25 @@ export default function CalendarMonth({
   const gridStart = startOfGrid(month);
   const gridEnd = addDays(gridStart, 42); // 6 weeks
 
-  // Expand weekly recurring events across the visible range
   const expandedEvents = useMemo(()=> expandWeeklyInRange(events, gridStart, gridEnd), [events, gridStart, gridEnd]);
 
   const cells = [];
   for(let i=0;i<42;i++){
     const d = addDays(gridStart, i);
-    const iso = ymd(d);
+    const iso = toYMD(d); // local day
     const isOtherMonth = d.getMonth() !== month.getMonth();
     const isSelected = iso === date;
-    const dayTasks = tasks.filter(t => (t.due||"").slice(0,10) === iso);
-    const dayEvents= expandedEvents.filter(e => (e.start||"").slice(0,10) === iso);
+
+    const dayTasks  = tasks.filter(t => t.due && ymdLocalFromISO(t.due) === iso);
+    const dayEvents = expandedEvents.filter(e => e.start && ymdLocalFromISO(e.start) === iso);
+
     cells.push({ d, iso, isOtherMonth, isSelected, dayTasks, dayEvents });
   }
 
   return (
     <div className="w-full">
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-base font-semibold">
-          {month.toLocaleString(undefined, { month:"long", year:"numeric" })}
-        </div>
+        <div className="text-base font-semibold">{month.toLocaleString(undefined, { month:"long", year:"numeric" })}</div>
         <div className="flex gap-2">
           <button className="px-2 py-1 rounded border bg-white" onClick={()=>goto(addMonths(month,-1))}>‹ Prev</button>
           <button className="px-2 py-1 rounded border bg-white" onClick={()=>goto(new Date())}>Today</button>
