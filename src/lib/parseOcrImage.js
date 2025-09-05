@@ -1,71 +1,92 @@
 import { createWorker } from "tesseract.js";
 
-/** Helpers */
+/* ---------- helpers ---------- */
 const pad = n => String(n).padStart(2,"0");
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 function parse12h(t){ const m=t&&t.match(/(\d{1,2}):(\d{2})\s*([AP]M)\b/i); if(!m)return null; let h=(+m[1])%12; if(/PM/i.test(m[3]))h+=12; return {h, m:+m[2]}; }
 function buildLocal(y,m,d,{h,m:min}){ return new Date(y,m-1,d,h,min,0,0); }
-
 function cryptoId(){ try{ return crypto.randomUUID(); }catch{ return Math.random().toString(36).slice(2,10);} }
 
-/** More tolerant day & block parsing tailored to your screenshot layout */
+/* Load image and preprocess to boost OCR quality */
+async function fileToCanvas(file){
+  const url = URL.createObjectURL(file);
+  try{
+    const img = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
+    // upscale to ~2000px width for clearer text
+    const maxW = 2000;
+    const scale = Math.min(3, Math.max(1, maxW / img.width));
+    const W = Math.round(img.width * scale);
+    const H = Math.round(img.height * scale);
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0, W, H);
+    // simple contrast/threshold
+    const imgData = ctx.getImageData(0,0,W,H);
+    const d = imgData.data;
+    for(let i=0;i<d.length;i+=4){
+      // grayscale
+      const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+      // increase contrast a bit
+      const cst = Math.max(0, Math.min(255, (g-128)*1.15 + 128));
+      const v = cst > 180 ? 255 : cst < 80 ? 0 : cst; // light binarization
+      d[i]=d[i+1]=d[i+2]=v;
+    }
+    ctx.putImageData(imgData,0,0);
+    return c;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/* ---------- text parsing tailored to your screenshot ---------- */
 export function parseScheduleTextFromImage(text){
   const T = (text||"")
     .replace(/\r/g,"")
     .replace(/[ \t]+\n/g,"\n")
     .replace(/[ \t]{2,}/g," ")
-    .replace(/[–—]/g,"-")        // normalize dashes
+    .replace(/[–—]/g,"-")
     .trim();
+  // log a snippet so we can see what OCR actually read
+  console.log("[OCR first 500 chars]\\n", T.slice(0,500));
 
-  // Guess month & year from header (e.g. "Mon, Aug 25"). Default to current.
+  // Month/year guess from header; default to current
   const monthMap = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
   const monthHit = T.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i);
   const month = monthMap[(monthHit?.[1]||"Aug").slice(0,3)];
   const year = new Date().getFullYear();
 
-  // Split by day columns: OCR can drop commas or mis-space, so be permissive.
+  // Split by day headers like "Mon, Aug 25" or "Tue Aug 26"
   const dayHeader = /(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*,?\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)?\s*(\d{1,2})/ig;
-
   const parts = [];
-  let m, last = 0, lastLabel = null;
+  let m, last = 0;
   while ((m = dayHeader.exec(T))) {
-    if (lastLabel) {
-      parts[parts.length-1].body = T.slice(last, m.index);
-    }
+    if (parts.length) parts[parts.length-1].body = T.slice(last, m.index);
+    parts.push({ day:+m[2], body:"" });
     last = dayHeader.lastIndex;
-    lastLabel = m[0];
-    const day = +m[2];
-    parts.push({ day, body: "" });
   }
   if (parts.length) parts[parts.length-1].body = T.slice(last);
-
-  // Fallback: if no day headers, treat the whole image as one day (user can edit)
-  if (!parts.length) parts.push({ day: new Date().getDate(), body: T });
+  if (!parts.length) parts.push({ day: new Date().getDate(), body: T }); // fallback: single day
 
   const events = [];
-
   for (const p of parts) {
     const lines = p.body.split(/\n+/).map(s=>s.trim()).filter(Boolean);
-
-    // Scan for time lines like "10:30AM - 11:45AM" (OCR may space oddly)
     for (let i=0;i<lines.length;i++){
       const L = lines[i];
+      // very tolerant time pattern: "10:30AM-11:45AM" / "10:30 AM - 11:45 AM"
       const tm = L.match(/(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(\d{1,2}:\d{2}\s*[AP]M)/i);
       if (!tm) continue;
 
-      // Look up 3–4 lines for title / prof / location (as in your screenshot)
-      const up = (k)=> lines[i-k]?.trim()||"";
+      const up = k => (k>0 && lines[i-k]) ? lines[i-k].trim() : "";
+      // try to pick a reasonable title not containing Campus/Room
       let title = up(3) || up(4) || up(2) || "Untitled";
-      // Avoid taking “Campus/Room” as title
       if (/Campus|Room|Bldg|Building|AS\.\d+/i.test(title)) title = up(4) || up(3) || "Untitled";
 
-      // Professor line is usually one above time
       let professor = null;
       const profLine = up(1);
       const profRe = /^(?:Professor|Prof\.?|Instructor|Dr\.?)?\s*([A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,2})$/;
       if (profRe.test(profLine)) professor = profLine.replace(/^(?:Professor|Prof\.?|Instructor|Dr\.?)\s*/i,"").trim();
 
-      // Location often includes “Campus”, building, room, or AS.xxx code
       let location = null;
       for (const cand of [up(2), up(1), up(3)]) {
         if (/\bCampus\b|\bRoom\b|\bBldg|Building|AS\.\d+/i.test(cand)) { location = cand; break; }
@@ -84,16 +105,36 @@ export function parseScheduleTextFromImage(text){
         professor,
         start: start.toISOString(),
         end: end.toISOString(),
-        repeatWeekly: true,   // class blocks repeat weekly
+        repeatWeekly: true,
         allDay: false,
         source: "image-ocr"
       });
     }
   }
+
+  // LAST-RESORT FALLBACK: if still nothing, scan the whole text for any time ranges and use *today*.
+  if (!events.length) {
+    const today = new Date();
+    const mm = today.getMonth()+1, dd = today.getDate(), yy = today.getFullYear();
+    const any = [...T.matchAll(/(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(\d{1,2}:\d{2}\s*[AP]M)(.*)$/img)];
+    for (const hit of any.slice(0,10)) {
+      const s12 = parse12h(hit[1]); const e12 = parse12h(hit[2]);
+      if (!s12 || !e12) continue;
+      const title = (hit[3]||"").replace(/^\s*[-–]\s*/,"").trim() || "Scheduled item";
+      events.push({
+        id: cryptoId(),
+        title, location:null, professor:null,
+        start: buildLocal(yy,mm,dd,s12).toISOString(),
+        end:   buildLocal(yy,mm,dd,e12).toISOString(),
+        repeatWeekly: false, allDay:false, source:"image-ocr-fallback"
+      });
+    }
+  }
+
   return events;
 }
 
-/** OCR with CDN worker/core paths so it works on Vercel */
+/* Use CDN worker so it loads in prod; preprocess canvas for better accuracy; log counts */
 export async function parseOcrImageFile(file){
   const worker = await createWorker({
     workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
@@ -104,8 +145,12 @@ export async function parseOcrImageFile(file){
     await worker.load();
     await worker.loadLanguage('eng');
     await worker.initialize('eng');
-    const { data:{ text } } = await worker.recognize(file);
-    return parseScheduleTextFromImage(text||"");
+    await worker.setParameters({ tessedit_pageseg_mode: '6' }); // Assume a block of text
+    const canvas = await fileToCanvas(file);
+    const { data:{ text } } = await worker.recognize(canvas);
+    const events = parseScheduleTextFromImage(text||"");
+    console.log(`[OCR] Detected ${events.length} events`);
+    return events;
   } finally {
     await worker.terminate();
   }
