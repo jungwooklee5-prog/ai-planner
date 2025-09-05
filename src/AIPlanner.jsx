@@ -1,3 +1,4 @@
+import { parseOcrImageFile } from './lib/parseOcrImage';
 import { parseScheduleFile } from "./lib/parseSchedule";
 /* AI Planner — toggle planner, local times, all-day + weekly repeats, edit due, syllabus time fix, due list, draggable layout */
 import React, { useEffect, useMemo, useRef, useState } from "react";
