@@ -1,3 +1,4 @@
+import { parseScheduleFile } from "./lib/parseSchedule";
 /* AI Planner — toggle planner, local times, all-day + weekly repeats, edit due, syllabus time fix, due list, draggable layout */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
@@ -459,7 +460,8 @@ export default function AIPlanner(){
                           <div className="flex-1">
                             <div className="font-medium break-words">{e.title} {e.repeatWeekly && <span className="text-[11px] ml-1 px-2 py-0.5 rounded-full border bg-slate-50">weekly</span>} {e.allDay && <span className="text-[11px] ml-1 px-2 py-0.5 rounded-full border bg-slate-50">all-day</span>}</div>
                             <div className="text-xs text-slate-600 mt-0.5">{e.allDay ? "All day" : `${s.toLocaleString()} – ${ed.toLocaleString()}`}</div>
-                            {e.location && <div className="text-xs text-slate-500 mt-0.5">{e.location}</div>}
+                            {e.location && <div className="text-xs text-slate-500 mt-0.5">📍 {e.location}</div>}
+{e.professor && <div className="text-xs text-slate-500 mt-0.5">👤 {e.professor}</div>}
                           </div>
                           <button className="text-slate-500 text-sm" onClick={()=>removeEvent(e.id)}>✕</button>
                         </div>);
