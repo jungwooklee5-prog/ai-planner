@@ -1,3 +1,7 @@
+import {
+  const { data, setData } = useOcrDebug() || {};  OcrDebugProvider, useOcrDebug } from "./lib/ocrDebug";
+import OcrDebugModal from "./components/OcrDebugModal";
+import { ocrGetText, buildFallbackEventsFromText } from "./lib/parseOcrImage";
 import { parseOcrImageFile } from './lib/parseOcrImage';
 import { parseScheduleFile } from "./lib/parseSchedule";
 /* AI Planner — toggle planner, local times, all-day + weekly repeats, edit due, syllabus time fix, due list, draggable layout */
@@ -13,7 +17,8 @@ import DayDetails from "./components/DayDetails";
 import NotificationDock from "./components/NotificationDock";
 import BoardLayout from "./components/BoardLayout";
 
-pdfjsLib.GlobalWorkerOptions.workerPort = new pdfWorker();
+pdfjsLib.GlobalWorkerOptions.workerPort = new pdfWorker(    </OcrDebugProvider>
+  );
 
 /* ---------- local datetime helpers ---------- */
 const pad = n => String(n).padStart(2,"0");
@@ -27,7 +32,8 @@ function atTime(baseISO,timeISO){ const b=new Date(baseISO+"T00:00"); const t=ne
 /* ---------- scheduling ---------- */
 const PRIORITY_WEIGHT={High:3,Medium:2,Low:1};
 const TOD_WINDOWS={Any:[0,1440],Morning:[360,720],Afternoon:[720,1020],Evening:[1020,1320]};
-function byUrgencyAndPriority(a,b){ const A=a.due?+new Date(a.due):Infinity,B=b.due?+new Date(b.due):Infinity; if(A!==B) return A-B; return (PRIORITY_WEIGHT[b.priority]||0)-(PRIORITY_WEIGHT[a.priority]||0); }
+function byUrgencyAndPriority(a,b){ const A=a.due?+new Date(a.due):Infinity,B=b.due?+new Date(b.due):Infinity; if(A!==B) return A-B; return (
+    <OcrDebugProvider>PRIORITY_WEIGHT[b.priority]||0)-(PRIORITY_WEIGHT[a.priority]||0); }
 function clampRange(ints,minS,maxE){ return ints.map(([s,e])=>[Math.max(minS,s),Math.min(maxE,e)]).filter(([s,e])=>e>s).sort((a,b)=>a[0]-b[0]); }
 function mergeIntervals(ints){ if(!ints.length) return []; const out=[]; let [cs,ce]=ints[0]; for(let i=1;i<ints.length;i++){const [s,e]=ints[i]; if(s<=ce) ce=Math.max(ce,e); else {out.push([cs,ce]); [cs,ce]=[s,e];}} out.push([cs,ce]); return out; }
 function invertIntervals(blocks,minS,maxE){ const merged=mergeIntervals(clampRange(blocks,minS,maxE)); const free=[]; let cur=minS; for(const [s,e] of merged){ if(s>cur) free.push([cur,s]); cur=Math.max(cur,e);} if(cur<maxE) free.push([cur,maxE]); return free; }
@@ -144,13 +150,179 @@ export default function AIPlanner(){
   const dayLabel=useMemo(()=>new Date(date+"T00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}),[date]);
 
   // auth
-  useEffect(()=>{ (async()=>{ const { data:{session} }=await supabase.auth.getSession(); setUser(session?.user||null); const { data:sub }=supabase.auth.onAuthStateChange((_e,s)=>setUser(s?.user||null)); return ()=>sub.subscription.unsubscribe(); })(); },[]);
+  useEffect(()=>{ (async()=>{ const { data:{session} }=await supabase.auth.getSession(); setUser(session?.user||null); const { data:sub }=supabase.auth.onAuthStateChange((_e,s)=>setUser(s?.user||null)); return (
+    <OcrDebugProvider>)=>sub.subscription.unsubscribe(); })(); },[]);
   // profile load/save
   useEffect(()=>{ ensureProfile(profile); const url=new URL(location.href); profile==="default"?url.searchParams.delete("u"):url.searchParams.set("u",profile); history.replaceState(null,"",url.toString()); user?loadCloud():loadLocal(); },[profile,user]);
   function loadLocal(){ const saved=ls.get(dataKey(profile),null); if(saved){ setTasks(saved.tasks||[]); setEvents(saved.events||[]); setAssignments(saved.assignments||[]); const s=saved.settings||{}; setStartHour(s.startHour??6); setEndHour(s.endHour??22);} else { setTasks([]); setEvents([]); setAssignments([]); setStartHour(6); setEndHour(22);} }
   async function loadCloud(){ const { data,error }=await supabase.from("planners").select("data").eq("user_id",user.id).eq("profile",profile).single(); if(error && error.code!=="PGRST116"){console.error(error); loadLocal(); return;} if(!data){ setTasks([]); setEvents([]); setAssignments([]); setStartHour(6); setEndHour(22); return;} const p=data.data||{}; setTasks(p.tasks||[]); setEvents(p.events||[]); setAssignments(p.assignments||[]); const s=p.settings||{}; setStartHour(s.startHour??6); setEndHour(s.endHour??22); }
   const saveTimer=useRef(null);
-  useEffect(()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current=setTimeout(()=>{ const payload={tasks,events,assignments,settings:{startHour,endHour}}; user?supabase.from("planners").upsert({user_id:user.id,profile,data:payload}):ls.set(dataKey(profile),payload); ls.set(LAST_KEY,profile); },400); return ()=>clearTimeout(saveTimer.current); },[user,profile,tasks,events,assignments,startHour,endHour]);
+  useEffect(()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current=setTimeout(()=>{ const payload={tasks,events,assignments,settings:{startHour,endHour}}; user?supabase.from("planners").upsert({user_id:user.id,profile,data:payload}):ls.set(dataKey(profile),payload); ls.set(LAST_KEY,profile); },400); return (
+    <OcrDebugProvider>)=>clearTimeout(saveTimer.current); },[user,profile,tasks,events,assignments,startHour,endHour]);
+
+  // build plan when visible
+  useEffect(()=>{ if(showPlanner) regenerate(); },[showPlanner,date,tasks,events,startHour,endHour]);
+  function regenerate(){ const sel=new Date(date+"T00:00"); setTimeline(autoSchedule({tasks,events,selectedDate:sel,minStart,maxEnd})); }
+
+  // new items
+  const [newTask,setNewTask]=useState({ title:"", est:30, due:toLocalInput(new Date()), priority:"Medium", category:"General", tod:"Any", notes:"" });
+  const [newEvent,setNewEvent]=useState({ title:"", start:toLocalInput(new Date()), end:toLocalInput(new Date()), location:"", allDay:false, repeatWeekly:false });
+
+  function addTask(){ if(!newTask.title.trim()) return; setTasks(p=>[{id:Math.random().toString(36).slice(2,9),...newTask},...p]); setNewTask({...newTask, title:""}); }
+  function toggleDone(id){ setTasks(p=>p.map(t=>t.id===id?{...t,completed:!t.completed}:t)); }
+  function updateTask(id, patch){ setTasks(p=>p.map(t=>t.id===id?{...t,...patch}:t)); }
+  function removeTask(id){ setTasks(p=>p.filter(t=>t.id!==id)); }
+
+  function addEvent(){
+    if(!newEvent.title.trim()) return alert("Title required.");
+    let s = parseLocalDT(newEvent.start), e = parseLocalDT(newEvent.end);
+    if(newEvent.allDay){
+      const d = new Date(ymd(newEvent.start)+"T00:00");
+      s = new Date(d); e = new Date(d); e.setHours(23,59,0,0);
+    }
+    if(!s || !e || e<=s) return alert("Check times.");
+    const ev = { id:Math.random().toString(36).slice(2,9), title:newEvent.title, start:toLocalInput(s), end:toLocalInput(e), location:newEvent.location, allDay:newEvent.allDay, repeatWeekly:newEvent.repeatWeekly };
+    setEvents(p=>[ev, ...p]);
+    setNewEvent({ ...newEvent, title:"" });
+  }
+  function removeEvent(id){ setEvents(p=>p.filter(e=>e.id!==id)); }
+
+  // uploads
+  async function readFileAsText(file){ const buf=await file.arrayBuffer(); return new TextDecoder().decode(buf); }
+  function pad2(n){return String(n).padStart(2,"0");}
+  function toICSDate(dt){ return `${dt.getFullYear()}${pad2(dt.getMonth()+1)}${pad2(dt.getDate())}T${pad2(dt.getHours())}${pad2(dt.getMinutes())}00`; }
+  function escapeICS(s){ return String(s||"").replace(/\\/g,"\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;"); }
+  function downloadICS(filename,evs){ const lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//AI Planner//EN"]; const stamp=toICSDate(new Date()); for(const ev of evs){ lines.push("BEGIN:VEVENT",`UID:${Math.random().toString(36).slice(2,9)}@aiplanner`,`DTSTAMP:${stamp}`,`SUMMARY:${escapeICS(ev.title)}`); if(ev.location) lines.push(`LOCATION:${escapeICS(ev.location)}`); lines.push(`DTSTART:${toICSDate(new Date(ev.start))}`,`DTEND:${toICSDate(new Date(ev.end))}`,"END:VEVENT"); } lines.push("END:VCALENDAR"); const blob=new Blob([lines.join("\n")],{type:"text/calendar"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1500); }
+  function parseICS(txt){ const events=[]; const lines=txt.replace(/\r/g,"").split("\n"); let cur=null; for(const raw of lines){ const line=raw.trim(); if(line==="BEGIN:VEVENT"){cur={};continue;} if(line==="END:VEVENT"){ if(cur.SUMMARY&&(cur.DTSTART||cur["DTSTART;TZID"])) events.push(cur); cur=null; continue;} if(!cur) continue; const [k,...rest]=line.split(":"); const v=rest.join(":"); const key=k.split(";")[0]; cur[key]=v; }
+    const toDate=v=>{ if(!v) return null; const m=v.match(/^(\d{4})(\d{2})(\d{2})(T(\d{2})(\d{2}))?/); if(!m) return null; const [,Y,M,D,,h="00",mi="00"]=m; return new Date(+Y,+M-1,+D,+h,+mi,0,0); };
+    return events.map(e=>({ id:Math.random().toString(36).slice(2,9), title:e.SUMMARY||"Untitled", start:toLocalInput(toDate(e.DTSTART||e["DTSTART;TZID"])), end:toLocalInput(toDate(e.DTEND||e["DTEND;TZID"])), location:e.LOCATION||"", allDay:false, repeatWeekly:false }));
+  }
+  function parseCSV(txt){ const out=[]; const rows=txt.trim().split(/\r?\n/); const hdr=(rows.shift()||"").split(",").map(h=>h.trim().toLowerCase()); const idx=k=>hdr.indexOf(k); for(const line of rows){ const c=line.split(",").map(s=>s.trim()); const title=c[idx("title")]||"Untitled"; const start=c[idx("start")]||""; const end=c[idx("end")]||""; const loc=idx("location")>-1?c[idx("location")]:""; if(start&&end) out.push({ id:Math.random().toString(36).slice(2,9), title, start, end, location:loc, allDay:false, repeatWeekly:false }); } return out; }
+  async function ocrImageFile(file){ const { createWorker } = await import("tesseract.js"); const worker=await createWorker("eng"); const url=URL.createObjectURL(file); const { data:{ text } }=await worker.recognize(url); await worker.terminate(); URL.revokeObjectURL(url); return text; }
+  function guessWeekStartISO(todayISO){ const d=new Date(todayISO+"T00:00"); const diff=((d.getDay()||7)-1); d.setDate(d.getDate()-diff); return d; }
+  const DAY_NAMES=["mon","tue","wed","thu","fri","sat","sun"];
+  function parseScheduleTextToEvents(text,weekStart){ const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean); const evs=[]; for(const line of lines){ const l=line.toLowerCase(); const day=DAY_NAMES.find(d=>l.startsWith(d)); if(!day) continue; const tm=line.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[–-]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i); if(!tm) continue; const [,h1,m1="00",ap1="",h2,m2="00",ap2=""]=tm; const title=line.slice(tm.index+tm[0].length).trim()||"Event"; const off=DAY_NAMES.indexOf(day); const base=new Date(weekStart); base.setDate(base.getDate()+off); const to24=(h,m,ap)=>{ let hh=Number(h)%12; if((ap||"").toLowerCase()==="pm") hh+=12; return [hh, Number(m)]; }; const [sH,sM]=to24(h1,m1,ap1), [eH,eM]=to24(h2,m2,ap2); const s=new Date(base); s.setHours(sH,sM,0,0); const e=new Date(base); e.setHours(eH,eM,0,0); if(e>s) evs.push({ id:Math.random().toString(36).slice(2,9), title, start:toLocalInput(s), end:toLocalInput(e), location:"", allDay:false, repeatWeekly:true }); } return evs; }
+  
+async function handleEventUpload(e){
+  const files = Array.from(e.target.files||[]);
+  if (!files.length) return;
+  const added=[];
+  for(const f of files){
+    try{
+      if((f.type||'').startsWith('image/')){
+        const text = await ocrGetText(f);
+        const fallback = buildFallbackEventsFromText(text);
+        // open debug modal to show OCR text + what we can import anyway
+        if (typeof setData === 'function') {
+          setData({ open:true, text, proposed:fallback });
+        }
+        if(fallback.length){ added.push(...fallback); }
+      }else{
+        const text = await f.text();
+        const { parseScheduleFile } = await import('./lib/parseSchedule');
+        const evs = parseScheduleFile(f.name, text);
+        added.push(...evs);
+      }
+    }catch(err){ console.error('Upload parse failed:', f.name, err); }
+  }
+  if(added.length){ setEvents(prev => [...added, ...prev]); }
+  e.target.value = '';
+}
+
+  }
+
+  const free = invertIntervals(dayEvents, minStart, maxEnd);
+  const cand = tasks.filter(t=>!t.completed).slice().sort(byUrgencyAndPriority);
+  const placed=[]; const freeBlocks=free.slice();
+
+  for (const [s,e] of mergeIntervals(dayEvents)) placed.push({title:"Calendar Event", startMin:s, endMin:e, type:"event"});
+
+  for (const t of cand){
+    let remaining=Math.max(15,Math.min(240,Number(t.est)||30));
+    const pref=TOD_WINDOWS[t.tod||"Any"]; const windows=[pref,[minStart,maxEnd]];
+    for(const w of windows){
+      for(let i=0;i<freeBlocks.length && remaining>0;i++){
+        let [fs,fe]=freeBlocks[i];
+        const s=Math.max(fs,w[0]), e=Math.min(fe,w[1]); if(e-s<=0) continue;
+        const chunk=Math.min(remaining,e-s,90);
+        const start=s, end=s+chunk;
+        placed.push({ title:t.title, startMin: start, endMin: end, type:"task" });
+        remaining-=chunk;
+        if(chunk>=50 && end+10<=fe){
+          placed.push({ title:"Break", startMin: end, endMin: end+10, type:"break" });
+          fs=end+10;
+        } else {
+          fs=end;
+        }
+        if(fs>=fe){ freeBlocks.splice(i,1); i--; } else freeBlocks[i]=[fs,fe];
+      }
+      if(remaining<=0) break;
+    }
+  }
+  return placed.filter(b=>b.endMin>b.startMin).sort((a,b)=>a.startMin-b.startMin);
+}
+
+/* ---------- syllabus parsing (23:59 local if no time) ---------- */
+async function readPdfText(file){ const buf=await file.arrayBuffer(); const pdf=await pdfjsLib.getDocument({data:buf}).promise; let text=""; for(let i=1;i<=pdf.numPages;i++){ const page=await pdf.getPage(i); const content=await page.getTextContent(); text += content.items.map(it => ("str" in it ? it.str : it?.text || "")).join(" ") + "\n"; } return text; }
+async function readDocxText(file){ const arrayBuffer=await file.arrayBuffer(); const { value:html }=await convertToHtml({ arrayBuffer }); return html.replace(/<[^>]+>/g," "); }
+const ASSIGNMENT_KEYWORD = /(assignment|homework|hw|project|lab|paper|essay|problem\s*set|pset|quiz|midterm|final)/i;
+function chronoAssignments(text){
+  const clean=text.replace(/\u00A0/g," ").replace(/[ \t]+/g," ").trim();
+  const lines=clean.split(/\r?\n|(?<=\.)\s+(?=[A-Z])/).map(l=>l.trim()).filter(Boolean);
+  const out=[]; const seen=new Set();
+  for(const line of lines){
+    if(!ASSIGNMENT_KEYWORD.test(line)) continue;
+    const res = chrono.parse(line, new Date(), { forwardDate:true })?.[0];
+    if(!res) continue;
+    const d = res.start?.date(); if(!d) continue;
+    if(!res.start.isCertain("hour")) d.setHours(23,59,0,0);
+    const title = line.replace(/due\s*:?\s*/i,"").replace(res.text,"").replace(/\s{2,}/g," ").trim() || "Assignment";
+    const dueISO = toLocalInput(d);
+    const key = `${title.toLowerCase()}|${dueISO}`;
+    if(seen.has(key)) continue; seen.add(key);
+    out.push({ id:Math.random().toString(36).slice(2,9), title, dueISO, source:line });
+  }
+  return out;
+}
+
+/* ---------- profiles & tiny UI ---------- */
+const ls = { get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}} };
+const PROFILES_KEY="planner:profiles", LAST_KEY="planner:lastProfile";
+function allProfiles(){ return ls.get(PROFILES_KEY,["default"]); }
+function ensureProfile(pid){ const list=allProfiles(); if(!list.includes(pid)){list.push(pid); ls.set(PROFILES_KEY,list);} ls.set(LAST_KEY,pid); }
+function dataKey(pid){ return `planner:data:${pid}`; }
+
+const Chip=({children})=><span className="inline-block text-[11px] px-2 py-0.5 rounded-full border bg-slate-50 mr-1">{children}</span>;
+function TextButton({onClick,children}){ return <button onClick={onClick} className="text-xs underline">{children}</button>; }
+
+/* ---------- main ---------- */
+export default function AIPlanner(){
+  const [user,setUser]=useState(null); const [authEmail,setAuthEmail]=useState("");
+
+  const urlId=new URLSearchParams(location.search).get("u")||""; const initial=(urlId||ls.get(LAST_KEY,"default")).trim()||"default"; ensureProfile(initial);
+  const [profile,setProfile]=useState(initial); const [profiles,setProfiles]=useState(allProfiles());
+
+  const [date,setDate]=useState(()=>ymd(new Date()));
+  const [tasks,setTasks]=useState([]); const [events,setEvents]=useState([]); const [assignments,setAssignments]=useState([]);
+  const [startHour,setStartHour]=useState(6), [endHour,setEndHour]=useState(22);
+  const [view,setView]=useState("Day"); const [timeline,setTimeline]=useState([]);
+  const [showPlanner,setShowPlanner]=useState(false);
+  const [showDayPanel,setShowDayPanel]=useState(false);
+  const [debugOpen,setDebugOpen]=useState(false); const [lastText,setLastText]=useState(""); const [lastMatches,setLastMatches]=useState([]);
+
+  const minStart=startHour*60, maxEnd=endHour*60;
+  const dayLabel=useMemo(()=>new Date(date+"T00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}),[date]);
+
+  // auth
+  useEffect(()=>{ (async()=>{ const { data:{session} }=await supabase.auth.getSession(); setUser(session?.user||null); const { data:sub }=supabase.auth.onAuthStateChange((_e,s)=>setUser(s?.user||null)); return (
+    <OcrDebugProvider>)=>sub.subscription.unsubscribe(); })(); },[]);
+  // profile load/save
+  useEffect(()=>{ ensureProfile(profile); const url=new URL(location.href); profile==="default"?url.searchParams.delete("u"):url.searchParams.set("u",profile); history.replaceState(null,"",url.toString()); user?loadCloud():loadLocal(); },[profile,user]);
+  function loadLocal(){ const saved=ls.get(dataKey(profile),null); if(saved){ setTasks(saved.tasks||[]); setEvents(saved.events||[]); setAssignments(saved.assignments||[]); const s=saved.settings||{}; setStartHour(s.startHour??6); setEndHour(s.endHour??22);} else { setTasks([]); setEvents([]); setAssignments([]); setStartHour(6); setEndHour(22);} }
+  async function loadCloud(){ const { data,error }=await supabase.from("planners").select("data").eq("user_id",user.id).eq("profile",profile).single(); if(error && error.code!=="PGRST116"){console.error(error); loadLocal(); return;} if(!data){ setTasks([]); setEvents([]); setAssignments([]); setStartHour(6); setEndHour(22); return;} const p=data.data||{}; setTasks(p.tasks||[]); setEvents(p.events||[]); setAssignments(p.assignments||[]); const s=p.settings||{}; setStartHour(s.startHour??6); setEndHour(s.endHour??22); }
+  const saveTimer=useRef(null);
+  useEffect(()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current=setTimeout(()=>{ const payload={tasks,events,assignments,settings:{startHour,endHour}}; user?supabase.from("planners").upsert({user_id:user.id,profile,data:payload}):ls.set(dataKey(profile),payload); ls.set(LAST_KEY,profile); },400); return (
+    <OcrDebugProvider>)=>clearTimeout(saveTimer.current); },[user,profile,tasks,events,assignments,startHour,endHour]);
 
   // build plan when visible
   useEffect(()=>{ if(showPlanner) regenerate(); },[showPlanner,date,tasks,events,startHour,endHour]);
@@ -201,7 +373,8 @@ export default function AIPlanner(){
 
   // notifications for events
   const notifiedIds=useRef(new Set());
-  useEffect(()=>{ if(typeof window==="undefined") return; if("Notification" in window && Notification.permission==="default") Notification.requestPermission(); const t=setInterval(()=>{ if(!("Notification" in window) || Notification.permission!=="granted") return; const now=new Date(); const soon=new Date(now.getTime()+10*60*1000); for(const e of events){ const s=parseLocalDT(e.start); if(!s) continue; if(s>now && s<=soon){ const key=e.id||`${e.title}|${e.start}`; if(notifiedIds.current.has(key)) continue; notifiedIds.current.add(key); new Notification(e.title||"Upcoming event",{ body:`${s.toLocaleString()}${e.location?` • ${e.location}`:""}`}); } } },30*1000); return ()=>clearInterval(t); },[events]);
+  useEffect(()=>{ if(typeof window==="undefined") return; if("Notification" in window && Notification.permission==="default") Notification.requestPermission(); const t=setInterval(()=>{ if(!("Notification" in window) || Notification.permission!=="granted") return; const now=new Date(); const soon=new Date(now.getTime()+10*60*1000); for(const e of events){ const s=parseLocalDT(e.start); if(!s) continue; if(s>now && s<=soon){ const key=e.id||`${e.title}|${e.start}`; if(notifiedIds.current.has(key)) continue; notifiedIds.current.add(key); new Notification(e.title||"Upcoming event",{ body:`${s.toLocaleString()}${e.location?` • ${e.location}`:""}`}); } } },30*1000); return (
+    <OcrDebugProvider>)=>clearInterval(t); },[events]);
 
   // pure due list
   const dueList = useMemo(()=>{
@@ -221,6 +394,7 @@ export default function AIPlanner(){
   );
 
   return (
+    <OcrDebugProvider>
     <div className="min-h-[100vh] w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       <div className="mx-auto max-w-7xl p-6">
         {/* Header */}
@@ -396,7 +570,8 @@ export default function AIPlanner(){
                       <>
                         <div className="mb-3 flex items-center justify-between shrink-0"><h2 className="text-lg font-semibold">Week Plan (Mon–Sun)</h2></div>
                         <div className="min-h-0 grow overflow-auto grid gap-4">
-                          {Array.from({length:7}).map((_,i)=>{ const d=new Date(date+"T00:00"); d.setDate(d.getDate()-((d.getDay()+6)%7)+i); const blocks=autoSchedule({tasks,events,selectedDate:d,minStart:startHour*60,maxEnd:endHour*60}); return (<div key={i} className="rounded-xl border p-3"><div className="text-sm font-medium mb-2">{d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"})}</div><div className="grid gap-2">{blocks.length?blocks.map((b,j)=>(
+                          {Array.from({length:7}).map((_,i)=>{ const d=new Date(date+"T00:00"); d.setDate(d.getDate()-((d.getDay()+6)%7)+i); const blocks=autoSchedule({tasks,events,selectedDate:d,minStart:startHour*60,maxEnd:endHour*60}); return (
+    <OcrDebugProvider><div key={i} className="rounded-xl border p-3"><div className="text-sm font-medium mb-2">{d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"})}</div><div className="grid gap-2">{blocks.length?blocks.map((b,j)=>(
                             <div key={j} className={`rounded-xl p-3 border w-full overflow-hidden ${b.type==="task"?"bg-emerald-50 border-emerald-200":b.type==="event"?"bg-indigo-50 border-indigo-200":"bg-amber-50 border-amber-200"}`}>
                               <div className="flex items-center justify-between"><div className="font-medium break-words">{b.title}</div><div className="text-sm text-gray-600">{String(Math.floor(b.startMin/60)).padStart(2,'0')}:{String(b.startMin%60).padStart(2,'0')} – {String(Math.floor(b.endMin/60)).padStart(2,'0')}:{String(b.endMin%60).padStart(2,'0')}</div></div>
                               <div className="text-xs text-gray-500 mt-1">{b.type==="task"?"Planned work":b.type==="event"?"Fixed event":"Recovery"}</div>
@@ -457,7 +632,8 @@ export default function AIPlanner(){
                     <div className="min-h-0 grow overflow-auto pr-1 space-y-2">
                       {events.length===0 && <div className="text-sm text-slate-500">No events yet.</div>}
                       {events.map(e=>{ const s=new Date(e.start), ed=new Date(e.end);
-                        return (<div key={e.id} className="rounded-xl border p-3 bg-white flex items-start gap-3">
+                        return (
+    <OcrDebugProvider><div key={e.id} className="rounded-xl border p-3 bg-white flex items-start gap-3">
                           <div className="flex-1">
                             <div className="font-medium break-words">{e.title} {e.repeatWeekly && <span className="text-[11px] ml-1 px-2 py-0.5 rounded-full border bg-slate-50">weekly</span>} {e.allDay && <span className="text-[11px] ml-1 px-2 py-0.5 rounded-full border bg-slate-50">all-day</span>}</div>
                             <div className="text-xs text-slate-600 mt-0.5">{e.allDay ? "All day" : `${s.toLocaleString()} – ${ed.toLocaleString()}`}</div>
