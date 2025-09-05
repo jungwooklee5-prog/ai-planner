@@ -1,45 +1,41 @@
 import React, { useMemo, useState } from "react";
+import { toYMD, startOfGrid, startOfMonth, addDays, expandWeeklyInRange } from "../lib/dates";
 
 const pad = n => String(n).padStart(2,"0");
-const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-
-function startOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
+const ymd = toYMD;
 function addMonths(d, n){ return new Date(d.getFullYear(), d.getMonth()+n, 1); }
-function startOfGrid(d){
-  const first = startOfMonth(d);
-  const weekday = (first.getDay()+6)%7; // Monday=0
-  const gridStart = new Date(first);
-  gridStart.setDate(first.getDate()-weekday);
-  return gridStart;
-}
 
 export default function CalendarMonth({
-  date,                   // ISO "YYYY-MM-DD" (used to highlight today/selected)
+  date,         // ISO "YYYY-MM-DD"
   tasks = [],
   events = [],
-  onSelect,               // (isoYmd) => void
-  onMonthChange,          // (newMonthDateObj) => void (optional)
+  onSelect,
+  onMonthChange,
 }) {
   const init = useMemo(()=> new Date(date + "T00:00"), [date]);
   const [month, setMonth] = useState(startOfMonth(init));
 
-  const goto = (d) => { setMonth(startOfMonth(d)); onMonthChange && onMonthChange(startOfMonth(d)); };
+  const goto = (d) => { const m = startOfMonth(d); setMonth(m); onMonthChange && onMonthChange(m); };
 
   const gridStart = startOfGrid(month);
+  const gridEnd = addDays(gridStart, 42); // 6 weeks
+
+  // Expand weekly recurring events across the visible range
+  const expandedEvents = useMemo(()=> expandWeeklyInRange(events, gridStart, gridEnd), [events, gridStart, gridEnd]);
+
   const cells = [];
   for(let i=0;i<42;i++){
-    const d = new Date(gridStart); d.setDate(gridStart.getDate()+i);
+    const d = addDays(gridStart, i);
     const iso = ymd(d);
     const isOtherMonth = d.getMonth() !== month.getMonth();
     const isSelected = iso === date;
-    const dayTasks = tasks.filter(t => (t.due||"").startsWith(iso));
-    const dayEvents= events.filter(e => (e.start||"").startsWith(iso));
+    const dayTasks = tasks.filter(t => (t.due||"").slice(0,10) === iso);
+    const dayEvents= expandedEvents.filter(e => (e.start||"").slice(0,10) === iso);
     cells.push({ d, iso, isOtherMonth, isSelected, dayTasks, dayEvents });
   }
 
   return (
     <div className="w-full">
-      {/* Header */}
       <div className="mb-2 flex items-center justify-between">
         <div className="text-base font-semibold">
           {month.toLocaleString(undefined, { month:"long", year:"numeric" })}
@@ -51,7 +47,6 @@ export default function CalendarMonth({
         </div>
       </div>
 
-      {/* Grid */}
       <div className="grid grid-cols-7 text-xs text-slate-500 mb-1">
         {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=><div key={d} className="px-2 py-1">{d}</div>)}
       </div>
@@ -72,7 +67,7 @@ export default function CalendarMonth({
                 <div key={t.id} className="text-[11px] truncate rounded bg-emerald-50 border border-emerald-200 px-1">✓ {t.title}</div>
               ))}
               {cell.dayEvents.slice(0,2).map(e=>(
-                <div key={e.id} className="text-[11px] truncate rounded bg-indigo-50 border border-indigo-200 px-1">• {e.title}</div>
+                <div key={e.id+(e._expanded?'-x':'')} className="text-[11px] truncate rounded bg-indigo-50 border border-indigo-200 px-1">• {e.title}</div>
               ))}
             </div>
           </button>
